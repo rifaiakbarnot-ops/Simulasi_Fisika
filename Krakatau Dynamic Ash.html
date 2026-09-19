@@ -1,0 +1,2312 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KRAKATAU ASH DYNAMICS</title>
+    <!-- Dependencies: Three.js, OrbitControls, Chart.js, Tailwind, FontAwesome -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body { font-family: 'Inter', sans-serif; background-color: #050508; color: #e2e8f0; overflow: hidden; margin: 0; }
+        
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        #canvas-container,
+        #canvas-container canvas {
+            pointer-events: auto !important;
+            touch-action: none; /* Penting untuk zoom/pan manual di layar sentuh */
+        }
+        
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.15);
+            box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.7);
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.4); border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.6); }
+
+        input[type=range] { accent-color: #f97316; cursor: pointer; }
+        select, input[type=number], input[type=text] { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(71, 85, 105, 0.5); color: #f8fafc; }
+        select:focus, input:focus { outline: none; border-color: #f97316; }
+        
+        .tab-btn { transition: all 0.2s ease; }
+        .tab-btn.active { background: rgba(249, 115, 22, 0.2); border-bottom: 2px solid #f97316; color: #f97316; }
+
+        /* Scientific Badges */
+        .badge-obs { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #059669; }
+        .badge-asumsi { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #d97706; }
+        .badge-sim { background: rgba(56, 189, 248, 0.2); color: #7dd3fc; border: 1px solid #0284c7; }
+        .badge-analitik { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; border: 1px solid #9333ea; }
+        
+        #presentation-overlay {
+            display: none;
+            pointer-events: none;
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.6); z-index: 60;
+        }
+        .presentation-active #presentation-overlay {
+            display: block;
+            pointer-events: auto;
+        }
+        .presentation-active .normal-ui { display: none !important; }
+        
+        .modal-overlay { display: none; position: fixed; top:0; left:0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 60; justify-content: center; align-items: center; }
+        .modal-overlay.active { display: flex; }
+
+        #toast-msg {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.9); color: white; padding: 10px 20px;
+            border-radius: 8px; font-size: 12px; font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 100;
+            opacity: 0; pointer-events: none; transition: opacity 0.3s;
+        }
+        #toast-msg.show { opacity: 1; }
+
+        /* Sidebar Toggle CSS */
+        #left-panel { transition: transform 0.3s ease, margin-left 0.3s ease; }
+        .sidebar-collapsed { transform: translateX(-100%); }
+        @media (min-width: 768px) {
+            .sidebar-collapsed { transform: none; margin-left: -320px; }
+        }
+        @media (min-width: 1024px) {
+            .sidebar-collapsed { transform: none; margin-left: -400px; }
+        }
+        @media (min-width: 1280px) {
+            .sidebar-collapsed { transform: none; margin-left: -450px; }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+    <div id="toast-msg">Pesan...</div>
+
+    <div id="main-ui" class="normal-ui flex h-screen w-screen relative z-10 pointer-events-none">
+        
+        <!-- Left Panel: Controls, Data & Analysis -->
+        <div id="left-panel" class="absolute md:relative z-40 w-[85vw] sm:w-[350px] md:w-[320px] lg:w-[400px] xl:w-[450px] h-full flex flex-col p-2 md:p-4 pointer-events-none flex-shrink-0">
+            
+            <!-- Toggle Button -->
+            <button id="btn-toggle-sidebar" class="absolute top-1/2 right-2 md:right-4 transform -translate-y-1/2 translate-x-full w-6 md:w-8 h-16 bg-slate-900/90 backdrop-blur border border-slate-700 border-l-0 rounded-r-lg flex items-center justify-center text-slate-400 hover:text-orange-400 transition-colors shadow-lg z-50 pointer-events-auto" aria-label="Ciutkan panel kontrol" title="Ciutkan panel kontrol">
+                <i id="toggle-sidebar-icon" class="fa-solid fa-chevron-left"></i>
+            </button>
+
+            <div class="glass-panel rounded-xl h-full flex flex-col overflow-hidden shadow-2xl pointer-events-auto">
+                
+                <!-- Header -->
+                <div class="p-4 border-b border-slate-700/50 flex justify-between items-center bg-slate-900/50">
+                    <div>
+                        <h1 class="text-lg font-bold text-orange-500 tracking-wide">KRAKATAU ASH DYNAMICS</h1>
+                        <p class="text-[10px] text-slate-400 uppercase tracking-widest">Scientific Volcanic Simulator</p>
+                    </div>
+                    <button id="btn-pres-mode" class="p-2 bg-indigo-600/30 text-indigo-300 rounded hover:bg-indigo-600/50 text-xs" title="Presentation Mode">
+                        <i class="fa-solid fa-person-chalkboard"></i>
+                    </button>
+                </div>
+
+                <!-- Tabs -->
+                <div class="flex text-[10px] font-semibold text-slate-400 border-b border-slate-700/50 bg-slate-800/30 overflow-x-auto custom-scrollbar">
+                    <button class="tab-btn active flex-1 py-3 px-2 hover:text-slate-200 uppercase whitespace-nowrap" data-tab="tab-simulasi">Simulasi</button>
+                    <button class="tab-btn flex-1 py-3 px-2 hover:text-slate-200 uppercase whitespace-nowrap" data-tab="tab-visual">Visual</button>
+                    <button class="tab-btn flex-1 py-3 px-2 hover:text-slate-200 uppercase whitespace-nowrap" data-tab="tab-analisis">Analisis</button>
+                    <button class="tab-btn flex-1 py-3 px-2 hover:text-slate-200 uppercase whitespace-nowrap" data-tab="tab-validasi">Validasi</button>
+                    <button class="tab-btn flex-1 py-3 px-2 hover:text-slate-200 uppercase whitespace-nowrap" data-tab="tab-eksperimen">Eksperimen</button>
+                </div>
+
+                <div class="flex-1 overflow-y-auto custom-scrollbar relative p-4" id="panels-container">
+                    
+                    <div id="tab-simulasi" class="tab-content block space-y-6">
+                        <!-- Dataset Selector -->
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold text-sky-400"><i class="fa-solid fa-database mr-1"></i> EVENT / DATASET</label>
+                            <select id="sel-dataset" class="w-full rounded p-2 text-sm focus:outline-none focus:border-orange-500"></select>
+                            <div id="info-ds-status" class="text-[10px] px-2 py-0.5 rounded inline-block mt-1"></div>
+                        </div>
+
+                        <!-- Physics Model -->
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold text-orange-400"><i class="fa-solid fa-cube mr-1"></i> MODEL FISIKA</label>
+                            <select id="sel-model" class="w-full rounded p-2 text-sm text-slate-200">
+                                <option value="1">Model 1: Projectile Ideal (Tanpa Gesekan)</option>
+                                <option value="2">Model 2: Projectile + Wind (Adveksi Stokes)</option>
+                                <option value="3" selected>Model 3: Projectile + Wind + Air Drag</option>
+                            </select>
+                            <p class="text-[9px] text-slate-400 mt-1 leading-tight" id="model-desc-info">
+                                Model 3 menggunakan aerodynamic drag kuadratik berbasis kecepatan udara relatif (v_rel).
+                            </p>
+                            <div class="mt-2 text-[9px] text-slate-400 bg-slate-900/50 p-2 rounded border border-slate-700/50 leading-tight">
+                                <i class="fa-solid fa-triangle-exclamation text-yellow-600/80 mr-1"></i>
+                                <strong>Transparansi Ilmiah:</strong> Model fisika dan asumsi parameter angin di atas merupakan percontohan matematis edukatif (densitas konstan), <strong>BUKAN</strong> prediksi operasional.
+                            </div>
+                            <div class="flex gap-2 mt-2">
+                                <label class="text-xs flex items-center gap-1 cursor-pointer">
+                                    <input type="radio" name="p_mode" value="single" class="accent-orange-500"> Single Particle
+                                </label>
+                                <label class="text-xs flex items-center gap-1 cursor-pointer">
+                                    <input type="radio" name="p_mode" value="cloud" checked class="accent-orange-500"> <span id="lbl-cloud-count">Particle Cloud (100)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Controls UI Gen (Physics Parameters) -->
+                        <div id="ui-params-container" class="space-y-4 pt-2 border-t border-slate-700/50"></div>
+                    </div>
+
+                    <div id="tab-visual" class="tab-content hidden space-y-6">
+                        <div class="bg-indigo-900/20 border border-indigo-900/50 rounded p-3 text-[10px] text-indigo-300">
+                            <i class="fa-solid fa-palette mr-1"></i> <strong>Mode Dekoratif:</strong> Pengaturan di panel ini hanya mengubah visualisasi estetika 3D dan sama sekali <strong>TIDAK</strong> memengaruhi kalkulasi mesin fisika proyektil.
+                        </div>
+
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold text-sky-400 uppercase">Topografi Permukaan</label>
+                            <select id="vis-mountain" class="w-full rounded p-2 text-sm">
+                                <option value="cone">Gunung Kerucut Sederhana</option>
+                                <option value="caldera">Gunung Api Kaldera Cekung</option>
+                                <option value="krakatau" selected>Anak Krakatau-style (Prosedural)</option>
+                                <option value="flat">Medan Datar Ilmiah</option>
+                            </select>
+                            <p class="text-[9px] text-slate-400 italic">Representasi visual edukatif, bukan topografi geografis presisi.</p>
+                        </div>
+
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold text-sky-400 uppercase">Bentuk Partikel</label>
+                            <select id="vis-particle" class="w-full rounded p-2 text-sm">
+                                <option value="sphere">Bola Sederhana</option>
+                                <option value="fragment">Fragmen Batu Tidak Beraturan</option>
+                                <option value="ash">Abu Halus (Titik)</option>
+                                <option value="mix" selected>Campuran Batu & Abu Halus</option>
+                            </select>
+                        </div>
+
+                        <div class="space-y-2">
+                            <label class="text-xs font-bold text-sky-400 uppercase">Tema Lingkungan</label>
+                            <select id="vis-env" class="w-full rounded p-2 text-sm">
+                                <option value="island" selected>Pulau Vulkanik & Laut Prosedural</option>
+                                <option value="land">Daratan Vulkanik (Tanah Gelap)</option>
+                                <option value="grid">Grid Kosong (Benchmark Analitik)</option>
+                            </select>
+                        </div>
+
+                        <div class="space-y-2 pt-2 border-t border-slate-700">
+                            <label class="text-xs font-bold text-slate-300 uppercase">Toggles Visibilitas</label>
+                            <div class="grid grid-cols-2 gap-2 text-xs text-slate-400">
+                                <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="toggle-plume" checked class="accent-orange-500"> Plume Asap Kawah</label>
+                                <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="toggle-sea" checked class="accent-sky-500"> Permukaan Laut</label>
+                                <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="toggle-fog" checked class="accent-slate-400"> Kabut Atmosfer</label>
+                                <label class="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" id="toggle-grid" checked class="accent-slate-500"> Grid Ilmiah</label>
+                                <label class="flex items-center gap-1.5 cursor-pointer text-orange-300"><input type="checkbox" id="toggle-ruler" checked class="accent-orange-500"> Pengukur Jarak</label>
+                                <label class="flex items-center gap-1.5 cursor-pointer text-sky-300"><input type="checkbox" id="toggle-ruler-label" checked class="accent-sky-500"> Label Angka Jarak</label>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2 pt-2 border-t border-slate-700">
+                            <label class="text-xs font-bold text-emerald-400 uppercase">Fisika Tabrakan Permukaan</label>
+                            <label class="flex items-center gap-1.5 cursor-pointer text-xs text-emerald-200">
+                                <input type="checkbox" id="toggle-terrain" class="accent-emerald-500"> Aktifkan Terrain Collision
+                            </label>
+                            <div class="text-[9px] text-emerald-500 bg-emerald-900/20 p-2 rounded border border-emerald-900/50 leading-tight">
+                                <i class="fa-solid fa-triangle-exclamation mr-1"></i> Mengikat koordinat pendaratan dengan visual elevasi gunung. <strong>Peringatan:</strong> Ini dapat mendisrupsi Benchmark Analitik.
+                            </div>
+                        </div>
+
+                        <div class="space-y-2 pt-2 border-t border-slate-700">
+                            <label class="text-xs font-bold text-slate-300 uppercase">Intensitas Plume Dekoratif</label>
+                            <input type="range" id="vis-smoke-int" min="0" max="100" value="50" class="w-full">
+                        </div>
+                    </div>
+
+                    <div id="tab-analisis" class="tab-content hidden space-y-6">
+                        <div class="space-y-2">
+                            <h3 class="text-xs font-bold text-purple-400 uppercase"><i class="fa-solid fa-chart-line mr-1"></i> Grafik History Simulasi</h3>
+                            <div class="bg-slate-900 rounded p-2 h-40 relative">
+                                <canvas id="chart-alt"></canvas>
+                            </div>
+                            <div class="bg-slate-900 rounded p-2 h-40 relative">
+                                <canvas id="chart-dist"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="border-t border-slate-700 pt-4 space-y-3">
+                            <h3 class="text-xs font-bold text-pink-400 uppercase"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Auto-Tune (Optimasi)</h3>
+                            <p class="text-[10px] text-slate-400 leading-tight">Mencari kombinasi parameter model terbaik menggunakan batas simulasi matematis.</p>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                    <label class="text-slate-400">Target Output</label>
+                                    <select id="at-target" class="w-full p-1.5 rounded bg-slate-800 border-slate-700">
+                                        <option value="hmax">Ketinggian Maks (Hmax)</option>
+                                        <option value="dist">Jarak Horizontal</option>
+                                        <option value="time">Waktu Terbang</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-slate-400">Nilai Target</label>
+                                    <input type="number" id="at-value" value="1000" class="w-full p-1.5 rounded bg-slate-800 border-slate-700">
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="text-slate-400">Parameter yang Dioptimasi</label>
+                                    <select id="at-param" class="w-full p-1.5 rounded bg-slate-800 border-slate-700">
+                                        <option value="v0">Initial Velocity (v0)</option>
+                                        <option value="angle">Launch Angle</option>
+                                        <option value="windSpeed">Wind Speed</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button id="btn-autotune" class="w-full py-2 bg-pink-600/40 hover:bg-pink-600/70 text-pink-200 rounded text-xs font-bold transition">
+                                JALANKAN OPTIMASI MODEL
+                            </button>
+                            <div id="at-result" class="text-[10px] p-2 bg-slate-900 rounded hidden border border-pink-900 font-mono"></div>
+                        </div>
+
+                        <div class="border-t border-slate-700 pt-4 space-y-3">
+                            <h3 class="text-xs font-bold text-teal-400 uppercase"><i class="fa-solid fa-flask mr-1"></i> Sensitivity Analysis</h3>
+                            <div class="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                    <label class="text-slate-400">Parameter X</label>
+                                    <select id="sens-param" class="w-full p-1.5 rounded bg-slate-800 border-slate-700">
+                                        <option value="v0">Initial Velocity</option>
+                                        <option value="angle">Launch Angle</option>
+                                        <option value="windSpeed">Wind Speed</option>
+                                        <option value="diameter">Particle Diameter</option>
+                                        <option value="mass">Particle Mass</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-slate-400">Output Y</label>
+                                    <select id="sens-output" class="w-full p-1.5 rounded bg-slate-800 border-slate-700">
+                                        <option value="hmax">Maximum Altitude</option>
+                                        <option value="dist">Horizontal Range</option>
+                                        <option value="time">Flight Time</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button id="btn-sens" class="w-full py-2 bg-teal-600/40 hover:bg-teal-600/70 text-teal-200 rounded text-xs font-bold transition">
+                                GENERATE GRAFIK SENSITIVITAS
+                            </button>
+                            <div class="bg-slate-900 rounded p-2 h-40 hidden relative" id="sens-chart-container">
+                                <canvas id="chart-sens"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tab-validasi" class="tab-content hidden space-y-4">
+                        <div class="bg-slate-800/50 rounded p-3 text-[10px] text-slate-300 space-y-2 border border-slate-700">
+                            <h4 class="font-bold text-slate-200 text-xs mb-1 uppercase tracking-wide border-b border-slate-600 pb-1">Konteks Ilmiah & Sumber Data</h4>
+                            <p><span class="font-bold text-sky-400">Sumber:</span> <span id="ds-source-info">N/A</span></p>
+                            <p id="ds-notes-info" class="italic text-slate-400">N/A</p>
+                        </div>
+                        <div id="validation-status-box" class="p-3 rounded-lg border bg-slate-800 border-slate-700 text-slate-300 text-xs">
+                            Memuat data validasi...
+                        </div>
+                        <div class="bg-slate-900/50 rounded-lg overflow-hidden border border-slate-700">
+                            <table class="w-full text-left text-[10px]">
+                                <thead class="bg-slate-800 text-slate-300">
+                                    <tr><th class="p-2">Parameter</th><th class="p-2">Observasi/Ref</th><th class="p-2">Simulasi (Output)</th><th class="p-2">Error %</th></tr>
+                                </thead>
+                                <tbody id="tbl-validation" class="divide-y divide-slate-700/50 text-slate-300">
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="border-t border-slate-700 pt-3">
+                            <button id="btn-compare-models" class="w-full py-2 bg-indigo-600/40 hover:bg-indigo-600/70 text-indigo-200 rounded text-xs font-bold transition">
+                                <i class="fa-solid fa-scale-balanced mr-1"></i> BANDINGKAN MODEL 1, 2, 3
+                            </button>
+                            <div id="model-compare-result" class="mt-2 hidden"></div>
+                        </div>
+                    </div>
+
+                    <div id="tab-eksperimen" class="tab-content hidden space-y-4">
+                        <div class="space-y-2 relative">
+                            <h3 class="text-xs font-bold text-emerald-400 uppercase">Simpan Eksperimen Saat Ini</h3>
+                            <div class="flex gap-2">
+                                <input type="text" id="exp-name" placeholder="Nama Eksperimen" class="flex-1 rounded p-2 text-xs bg-slate-800 border-slate-700 text-white">
+                                <button id="btn-save-exp" class="px-4 py-2 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-500 transition shadow-lg">SIMPAN</button>
+                            </div>
+                        </div>
+                        <div class="border-t border-slate-700 pt-6">
+                            <div class="flex justify-between items-center mb-2">
+                                <h3 class="text-xs font-bold text-slate-300 uppercase">Eksperimen Tersimpan</h3>
+                                <button id="btn-compare-exp" class="text-[10px] px-2 py-1 bg-sky-600/50 hover:bg-sky-600 rounded text-white transition shadow-lg">Compare (0 Selected)</button>
+                            </div>
+                            <div id="saved-exp-list" class="space-y-2"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Simulation Controls (Bottom Left Panel) -->
+                <div class="p-4 border-t border-slate-700/50 bg-slate-900 flex flex-col gap-2">
+                    <div class="flex gap-2">
+                        <button id="btn-play" class="flex-1 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded font-bold text-sm transition shadow-lg"><i class="fa-solid fa-play mr-1"></i> PLAY</button>
+                        <button id="btn-pause" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded font-bold text-sm transition shadow-md"><i class="fa-solid fa-pause mr-1"></i> PAUSE</button>
+                        <button id="btn-restart" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded font-bold text-sm transition shadow-md" title="Restart Particle"><i class="fa-solid fa-rotate-left"></i></button>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="btn-reset-sim" class="flex-1 py-1.5 text-[10px] font-bold bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 rounded uppercase transition tracking-wider border border-slate-700">Reset Simulation</button>
+                        <button id="btn-reset-all" class="flex-1 py-1.5 text-[10px] font-bold bg-slate-800 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded uppercase transition tracking-wider border border-red-900/30">Reset Everything</button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Right Overlays -->
+        <div class="flex-1 h-full relative pointer-events-none p-4 flex flex-col justify-between overflow-hidden">
+            
+            <div class="flex flex-col gap-3 items-end pointer-events-auto">
+                <!-- Telemetry Panel -->
+                <div class="glass-panel p-3 rounded-xl w-48 sm:w-56 md:w-64 shadow-xl">
+                    <div class="flex justify-between items-center mb-2 border-b border-slate-700 pb-1">
+                        <span class="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Telemetri Model <span id="tele-model-id">3</span></span>
+                        <div class="text-[10px] bg-slate-800 px-1.5 rounded text-orange-400 font-mono font-bold" id="tele-time">0.00 s</div>
+                    </div>
+                    <div class="space-y-1.5 text-[10px] md:text-xs font-mono">
+                        <div class="flex justify-between text-slate-400"><span>Altitude (rel):</span> <span id="tele-alt" class="text-white">0.0 m</span></div>
+                        <div class="flex justify-between text-slate-400"><span>Distance (horz):</span> <span id="tele-dist" class="text-white">0.0 m</span></div>
+                        <div class="flex justify-between text-slate-400"><span>Speed (3D):</span> <span id="tele-speed" class="text-white">0.0 m/s</span></div>
+                        <div class="border-t border-slate-700/50 mt-1 pt-1 flex justify-between text-slate-400"><span>Hmax:</span> <span id="tele-hmax" class="text-sky-300 font-bold">0.0 m</span></div>
+                        <div class="flex justify-between text-slate-400"><span>Range Max:</span> <span id="tele-rmax" class="text-sky-300 font-bold">0.0 m</span></div>
+                    </div>
+
+                    <!-- Sanity Check (Model 1 Single) -->
+                    <div id="sanity-panel" class="mt-3 p-2 bg-purple-900/20 border border-purple-900/50 rounded hidden">
+                        <div class="text-[9px] text-purple-400 font-bold uppercase mb-1">Analytical Reference (Ideal)</div>
+                        <div class="flex justify-between text-[10px] text-slate-300"><span>Theor. Hmax:</span> <span id="tele-sanity">0.0 m</span></div>
+                        <div class="text-[9px] text-slate-500 mt-1" id="tele-sanity-err">Error: 0.0%</div>
+                    </div>
+                </div>
+
+                <!-- Particle Inspector Panel -->
+                <div id="inspector-panel" class="glass-panel p-3 rounded-xl w-48 sm:w-56 md:w-64 shadow-xl border border-sky-900/50">
+                    <div class="text-[10px] font-bold text-sky-400 uppercase border-b border-slate-700 pb-1 mb-2"><i class="fa-solid fa-magnifying-glass mr-1"></i> Main Particle Inspector</div>
+                    <div class="space-y-1 text-[9px] md:text-[10px] font-mono text-slate-300">
+                        <div class="flex justify-between"><span>ID:</span> <span id="pi-id" class="text-white">N/A</span></div>
+                        <div class="flex justify-between"><span>Status:</span> <span id="pi-status" class="text-emerald-400 font-bold">Ready</span></div>
+                        <div class="flex justify-between"><span>Pos X:</span> <span id="pi-pos-x" class="text-white">0.0 m</span></div>
+                        <div class="flex justify-between"><span>Pos Y:</span> <span id="pi-pos-y" class="text-white">0.0 m</span></div>
+                        <div class="flex justify-between"><span>Pos Z:</span> <span id="pi-pos-z" class="text-white">0.0 m</span></div>
+                        <div class="flex justify-between"><span>Altitude:</span> <span id="pi-alt" class="text-white">0.0 m</span></div>
+                        <div class="flex justify-between"><span>Vel X:</span> <span id="pi-vel-x" class="text-white">0.0 m/s</span></div>
+                        <div class="flex justify-between"><span>Vel Y:</span> <span id="pi-vel-y" class="text-white">0.0 m/s</span></div>
+                        <div class="flex justify-between"><span>Vel Z:</span> <span id="pi-vel-z" class="text-white">0.0 m/s</span></div>
+                        <div class="flex justify-between"><span>Speed:</span> <span id="pi-speed" class="text-white">0.0 m/s</span></div>
+                        <div class="flex justify-between border-t border-slate-700/50 mt-1 pt-1">
+                            <span class="text-sky-300">Flight Time:</span> <span id="pi-time" class="text-sky-300 font-bold">0.00 s</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-3 items-end pointer-events-auto">
+                <!-- Legend -->
+                <div class="glass-panel p-2 rounded-lg text-[9px] text-slate-400 bg-slate-900/80 border border-slate-700 flex flex-col gap-1 w-48 md:w-56 shadow-lg">
+                    <div class="font-bold text-slate-300 mb-0.5 border-b border-slate-700 pb-0.5 uppercase tracking-wide">Scientific Legend</div>
+                    <div class="flex items-center gap-1.5"><div class="w-2 h-2 rounded-full bg-slate-400"></div> Partikel Abu</div>
+                    <div class="flex items-center gap-1.5"><div class="w-3 h-0.5 bg-orange-500 opacity-60"></div> Lintasan Numerik (Traj)</div>
+                    <div class="flex items-center gap-1.5"><div class="w-3 h-0.5 bg-sky-500"></div> Vektor Angin</div>
+                    <div class="flex items-center gap-1.5"><div class="w-2 h-2 border border-slate-500 bg-slate-800 rounded-sm"></div> Permukaan Fisika (y=0)</div>
+                    <div class="border-t border-slate-700 mt-0.5 pt-0.5 flex flex-col gap-1">
+                        <div class="flex items-center gap-1.5"><span class="badge-obs px-1 py-0.5 rounded text-[8px] min-w-[24px] text-center">Data Observasi</span> Data eksternal</div>
+                        <div class="flex items-center gap-1.5"><span class="badge-asumsi px-1 py-0.5 rounded text-[8px] min-w-[24px] text-center">Asumsi Model</span> Parameter uji</div>
+                        <div class="flex items-center gap-1.5"><span class="badge-sim px-1 py-0.5 rounded text-[8px] min-w-[24px] text-center">Hasil Simulasi</span> Output mesin</div>
+                        <div id="legend-wind-note" class="text-[8px] text-slate-500 mt-1 italic">* Model 1 mengabaikan angin & drag</div>
+                    </div>
+                </div>
+
+                <!-- Camera Controls -->
+                <div class="glass-panel p-1.5 rounded-lg flex flex-col gap-1 pointer-events-auto w-full md:w-auto">
+                    <div class="flex gap-1 justify-center">
+                        <button class="cam-btn px-2 md:px-3 py-1.5 text-[10px] md:text-xs text-slate-300 hover:text-white hover:bg-slate-700 rounded transition" data-mode="overview">Overview</button>
+                        <button class="cam-btn px-2 md:px-3 py-1.5 text-[10px] md:text-xs text-slate-300 hover:text-white hover:bg-slate-700 rounded transition" data-mode="side">Side</button>
+                        <button class="cam-btn px-2 md:px-3 py-1.5 text-[10px] md:text-xs text-slate-300 hover:text-white hover:bg-slate-700 rounded transition" data-mode="top">Top</button>
+                    </div>
+                    <div class="flex gap-1 justify-center">
+                        <button class="cam-btn px-2 md:px-3 py-1.5 text-[10px] md:text-xs text-slate-300 hover:text-white hover:bg-slate-700 rounded transition flex-1" data-mode="follow"><i class="fa-solid fa-video mr-1 pointer-events-none"></i> Follow</button>
+                        <button class="cam-btn px-2 md:px-3 py-1.5 text-[10px] md:text-xs text-slate-300 hover:text-white hover:bg-slate-700 rounded transition flex-1" data-mode="manual"><i class="fa-solid fa-hand mr-1 pointer-events-none"></i> Manual</button>
+                    </div>
+                    <div class="text-[8px] text-slate-400 text-center leading-tight">Manual: drag putar &middot; scroll zoom &middot; klik kanan/dua jari geser</div>
+                </div>
+
+                <!-- Replay Timeline -->
+                <div class="glass-panel p-3 rounded-xl w-[260px] sm:w-[300px] md:w-[400px] lg:w-[500px] shadow-2xl border border-slate-700 max-w-full">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-[10px] md:text-xs font-bold text-orange-400 uppercase tracking-wider"><i class="fa-solid fa-clock-rotate-left mr-1"></i> Replay Timeline</span>
+                        <div class="flex gap-0.5 md:gap-1 text-[9px] md:text-[10px] bg-slate-900 p-1 rounded-lg border border-slate-700">
+                            <button class="spd-btn px-1.5 py-0.5 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition" data-spd="0.25">0.25x</button>
+                            <button class="spd-btn px-1.5 py-0.5 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition" data-spd="0.5">0.5x</button>
+                            <button class="spd-btn px-1.5 py-0.5 rounded bg-slate-700 text-orange-400 font-bold shadow-inner active" data-spd="1">1x</button>
+                            <button class="spd-btn px-1.5 py-0.5 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition" data-spd="2">2x</button>
+                            <button class="spd-btn px-1.5 py-0.5 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition" data-spd="4">4x</button>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 md:gap-3">
+                        <span id="tl-current" class="text-[9px] md:text-[10px] font-mono w-6 md:w-8 text-right text-slate-300">0.0s</span>
+                        <input type="range" id="timeline-slider" min="0" max="0" step="0.01" value="0" class="flex-1">
+                        <span id="tl-max" class="text-[9px] md:text-[10px] font-mono w-6 md:w-8 text-left text-slate-500">0.0s</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Presentation Mode Overlay -->
+    <div id="presentation-overlay">
+        <div class="absolute bottom-10 left-1/2 transform -translate-x-1/2 w-[90%] md:w-[600px] lg:w-[800px] glass-panel rounded-2xl p-4 md:p-6 shadow-2xl border-t-2 border-indigo-500">
+            <div class="flex justify-between items-center mb-4">
+                <span id="pres-step-badge" class="px-3 py-1 bg-indigo-600/80 text-white text-[10px] font-bold rounded-full tracking-widest shadow-lg">STEP 1/5</span>
+                <button id="btn-exit-pres" class="text-slate-400 hover:text-red-400 transition bg-slate-800 w-8 h-8 rounded-full flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <h2 id="pres-title" class="text-lg md:text-2xl font-bold text-white mb-2 tracking-wide">Kondisi Awal Peluncuran</h2>
+            <p id="pres-desc" class="text-slate-300 text-xs md:text-sm leading-relaxed mb-6 font-light">Model mengasumsikan partikel abu dilontarkan dari kawah dengan kecepatan awal (v0) dan sudut tertentu. Vektor angin atmosfer akan memengaruhi arah sebaran.</p>
+            <div class="flex justify-between items-center border-t border-slate-700/50 pt-4">
+                <button id="btn-pres-prev" class="px-3 md:px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded font-bold text-xs transition invisible tracking-wider shadow-md">← PREV</button>
+                <div class="flex gap-2" id="pres-dots"></div>
+                <button id="btn-pres-next" class="px-3 md:px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-bold text-xs transition tracking-wider shadow-lg">NEXT →</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Compare Experiments -->
+    <div id="modal-compare" class="modal-overlay">
+        <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 md:p-6 max-w-4xl w-full mx-4 shadow-2xl pointer-events-auto flex flex-col max-h-[90vh]">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                <h2 class="text-base md:text-lg font-bold text-white"><i class="fa-solid fa-code-compare text-sky-400 mr-2"></i> Perbandingan Eksperimen</h2>
+                <button id="btn-close-compare" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark fa-lg"></i></button>
+            </div>
+            <div class="flex-1 overflow-auto custom-scrollbar">
+                <div class="text-[10px] text-yellow-400 mb-2 italic text-center w-full" id="cmp-warning"></div>
+                <table class="w-full text-left text-[10px] md:text-xs">
+                    <thead class="bg-slate-800 text-slate-300 sticky top-0" id="cmp-thead"></thead>
+                    <tbody id="cmp-tbody" class="divide-y divide-slate-700/50 text-slate-300 font-mono"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. DATASETS LAYER (Scientific Honesty)
+        // ==========================================
+        const EventDatasets = {
+            "demo": {
+                id: "demo",
+                name: "Model Demonstrasi Default",
+                status: "Demonstration Only",
+                source: "N/A - Model Edukatif",
+                notes: "Parameter awal merupakan nilai model untuk simulasi edukatif, bukan parameter erupsi nyata.",
+                params: { v0: 60, angle: 60, altitude: 0, mass: 1.0, diameter: 0.5, cd: 0.47, count: 100, gravity: 9.81, rho: 1.225, windSpeed: 5, windDir: 315, mu: 0.000018 },
+                referenceAnalytic: null,
+                observed: null,
+                otherObserved: null
+            },
+            "benchmark1": {
+                id: "benchmark1",
+                name: "Benchmark Analitik (Model 1)",
+                status: "Reference Test Data",
+                source: "Reference Teoritis Fisika Dasar",
+                notes: "Digunakan murni untuk validasi kalkulasi integrasi numerik sistem Model 1 terhadap teori matematis proyektil ideal. Hanya sahih jika Model 1, Wind=0, dan Altitude=0.",
+                params: { v0: 100, angle: 45, altitude: 0, mass: 5.0, diameter: 2.0, cd: 0.47, count: 1, gravity: 9.81, rho: 1.225, windSpeed: 0, windDir: 0, mu: 0.000018 },
+                referenceAnalytic: { maxAlt: 254.8, maxDist: 1019.3, flightTime: 14.4 },
+                observed: null,
+                otherObserved: null
+            },
+            "krakatau2026": {
+                id: "krakatau2026",
+                name: "Skenario Edukatif Anak Krakatau",
+                status: "Skenario Edukatif",
+                source: "Asumsi Model Teoritis",
+                notes: "Parameter v0, sudut, massa, diameter, dan angin di sini adalah ASUMSI MODEL untuk keperluan edukasi. Densitas udara dan angin diasumsikan konstan terhadap ketinggian.",
+                params: { v0: 380, angle: 88, altitude: 0, mass: 10.0, diameter: 5.0, cd: 0.5, count: 100, gravity: 9.81, rho: 1.2, windSpeed: 20, windDir: 90, mu: 0.000018 },
+                referenceAnalytic: null,
+                observed: null,
+                otherObserved: { 
+                    "Ash Cloud Altitude (Sept 2026)": { value: "15,000 ft (~4.57 km)", source: "Observasi Atmosfer", comparability: "NON-COMPARABLE - Atmospheric/Thermal Plume Observation, BUKAN Hmax Proyektil" },
+                    "Max Plume Layer (Sept 2026)": { value: "~50,000 ft (~15.24 km)", source: "Satelit Eksternal", comparability: "NON-COMPARABLE - Atmospheric/Thermal Plume Observation, BUKAN Hmax Proyektil" }
+                }
+            },
+            "krakatau1883": {
+                id: "krakatau1883",
+                name: "Krakatau 1883 (Historical Context)",
+                status: "Estimasi Historis / Deskriptif",
+                source: "Simkin & Fiske (1983) - The Volcanic Eruption and its Effects",
+                notes: "Model proyektil balistik sederhana tidak merepresentasikan erupsi plinian masif (VEI 6). Data berikut murni konteks sejarah (fluid dynamics).",
+                params: { v0: 550, angle: 89, altitude: 0, mass: 50.0, diameter: 10.0, cd: 0.5, count: 200, gravity: 9.81, rho: 1.2, windSpeed: 30, windDir: 270, mu: 0.000018 },
+                referenceAnalytic: null,
+                observed: null,
+                otherObserved: { 
+                    "Estimasi Tinggi Kolom": { value: "25 - 30 km", source: "Historical Estimate (Fluid Dynamics)", comparability: "NON-COMPARABLE - Not Projectile Hmax" },
+                    "Jangkauan Terdengar": { value: "> 3,000 km", source: "Royal Society Report", comparability: "NON-COMPARABLE - Acoustic Observation, Not Projectile Range" }
+                }
+            }
+        };
+
+        const AppState = {
+            isRunning: false, isReplaying: false,
+            simTime: 0, accumulator: 0,
+            modelType: 3, particleMode: 'cloud',
+            params: { ...EventDatasets.demo.params },
+            currentDataset: EventDatasets.demo,
+            particles: [],
+            mainParticleHistory: [], 
+            cameraMode: 'overview',
+            ui: { playbackSpeed: 1, showOverlay: true, sidebarCollapsed: false },
+            presentation: { active: false, step: 0 },
+            savedExperiments: [], selectedExperimentIndices: new Set(),
+            visuals: { 
+                mountain: 'krakatau', env: 'island', particles: 'mix', 
+                plume: true, sea: true, fog: true, grid: true, 
+                ruler: true, rulerLabel: true, terrainCollision: false, smokeInt: 50 
+            }
+        };
+
+        // Utility: Toast Notification
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById('toast-msg');
+            toast.innerText = msg;
+            toast.style.background = isError ? 'rgba(153, 27, 27, 0.9)' : 'rgba(16, 185, 129, 0.9)';
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // ==========================================
+        // 2. CORE PHYSICS ENGINE
+        // ==========================================
+        const PhysicsEngine = {
+            dt: 0.01, 
+            
+            convertParams(uiParams) {
+                return {
+                    ...uiParams,
+                    massKg: uiParams.mass * 1e-6, 
+                    diamM: uiParams.diameter * 1e-3, 
+                    angleRad: uiParams.angle * (Math.PI / 180),
+                    windDirRad: uiParams.windDir * (Math.PI / 180)
+                };
+            },
+
+            createParticle(p, isMain = false) {
+                const vVar = isMain ? 1 : 0.9 + Math.random() * 0.2;
+                const aVar = isMain ? 0 : (Math.random() - 0.5) * 0.05;
+                const mVar = isMain ? 1 : 0.8 + Math.random() * 0.4;
+                
+                const speed = p.v0 * vVar;
+                const angle = p.angleRad + aVar;
+                const azimuth = isMain ? 0 : (Math.random() - 0.5) * Math.PI * 0.2;
+
+                // Visual attributes stabil pre-calculated
+                const massMg = p.massKg * 1e6 * mVar; 
+                let visType = 'ash';
+                if (AppState.visuals.particles === 'mix') {
+                    visType = Math.random() > 0.5 ? 'ash' : 'fragment';
+                } else if (AppState.visuals.particles === 'fragment') {
+                    visType = 'fragment';
+                } else if (AppState.visuals.particles === 'sphere') {
+                    visType = 'sphere';
+                }
+                const visScale = Math.max(0.2, Math.min(2.0, Math.cbrt(massMg) * 0.5)) * (0.8 + Math.random() * 0.4);
+                const visSeedX = Math.random() * Math.PI * 2;
+                const visSeedY = Math.random() * Math.PI * 2;
+
+                return {
+                    id: crypto.randomUUID().substring(0,8),
+                    active: true, landed: false, isMain: isMain,
+                    x: 0, y: 0, z: 0, 
+                    vx: speed * Math.cos(angle) * Math.cos(azimuth),
+                    vy: speed * Math.sin(angle),
+                    vz: speed * Math.cos(angle) * Math.sin(azimuth),
+                    mass: p.massKg * mVar,
+                    diam: p.diamM,
+                    area: Math.PI * Math.pow(p.diamM / 2, 2),
+                    cd: p.cd,
+                    maxAlt: p.altitude,
+                    maxDist: 0, flightTime: 0,
+                    visType, visScale, visSeedX, visSeedY 
+                };
+            },
+
+            step(particle, p, modelType) {
+                if (!particle.active) return;
+
+                let ax = 0, ay = -p.gravity, az = 0;
+
+                const wx = p.windSpeed * Math.cos(p.windDirRad);
+                const wz = p.windSpeed * Math.sin(p.windDirRad);
+                const vRelX = particle.vx - wx;
+                const vRelY = particle.vy; 
+                const vRelZ = particle.vz - wz;
+
+                if (modelType === 2) {
+                    const mu = p.mu || 0.000018; 
+                    const coeff = (3 * Math.PI * mu * particle.diam) / particle.mass;
+                    ax -= coeff * vRelX;
+                    ay -= coeff * vRelY;
+                    az -= coeff * vRelZ;
+                } 
+                else if (modelType === 3) {
+                    const vRelMagSq = vRelX*vRelX + vRelY*vRelY + vRelZ*vRelZ;
+                    const vRelMag = Math.sqrt(vRelMagSq);
+
+                    if (vRelMag > 0) {
+                        const Fd_mag = 0.5 * p.rho * vRelMagSq * particle.cd * particle.area;
+                        let a_drag_mag = Fd_mag / particle.mass;
+                        const maxAcc = vRelMag / this.dt;
+                        if (a_drag_mag > maxAcc) a_drag_mag = maxAcc;
+                        ax -= a_drag_mag * (vRelX / vRelMag);
+                        ay -= a_drag_mag * (vRelY / vRelMag);
+                        az -= a_drag_mag * (vRelZ / vRelMag);
+                    }
+                }
+
+                particle.vx += ax * this.dt;
+                particle.vy += ay * this.dt;
+                particle.vz += az * this.dt;
+
+                const nextX = particle.x + particle.vx * this.dt;
+                const nextY = particle.y + particle.vy * this.dt;
+                const nextZ = particle.z + particle.vz * this.dt;
+
+                let groundYPhysics = 0;
+                if (AppState.visuals.terrainCollision && typeof Visuals !== 'undefined') {
+                    groundYPhysics = Visuals.getTerrainHeightWorld(nextX, nextZ) - Visuals.CRATER_HEIGHT;
+                }
+
+                if (nextY <= groundYPhysics && particle.vy < 0) {
+                    let timeToGround = 0;
+                    if (particle.vy !== 0) {
+                        timeToGround = (groundYPhysics - particle.y) / particle.vy;
+                        if (timeToGround < 0) timeToGround = 0;
+                        if (timeToGround > this.dt) timeToGround = this.dt;
+                    }
+                    
+                    particle.x += particle.vx * timeToGround;
+                    particle.y = groundYPhysics; 
+                    particle.z += particle.vz * timeToGround;
+                    particle.flightTime += timeToGround;
+                    
+                    particle.vx = 0; particle.vy = 0; particle.vz = 0;
+                    particle.active = false; particle.landed = true;
+                } else {
+                    particle.x = nextX;
+                    particle.y = nextY;
+                    particle.z = nextZ;
+                    particle.flightTime += this.dt;
+                }
+
+                const currentAbsAlt = particle.y + p.altitude;
+                const currentDist = Math.sqrt(particle.x*particle.x + particle.z*particle.z);
+
+                if (currentAbsAlt > particle.maxAlt) particle.maxAlt = currentAbsAlt;
+                if (currentDist > particle.maxDist) particle.maxDist = currentDist;
+            },
+
+            runBatchSimulation(uiParams, modelType) {
+                const p = this.convertParams(uiParams);
+                const particle = this.createParticle(p, true);
+                
+                let steps = 0;
+                while (particle.active && steps < 30000) { 
+                    this.step(particle, p, modelType);
+                    steps++;
+                }
+                return particle;
+            }
+        };
+
+        // ==========================================
+        // 3. ANALYSIS & VALIDATION
+        // ==========================================
+        const Analysis = {
+            calcError(ref, sim) {
+                if (ref === null || ref === undefined || isNaN(ref)) return { abs: "N/A", pct: "N/A" };
+                const err = Math.abs(sim - ref);
+                let pct = ref !== 0 ? ((err / Math.abs(ref)) * 100).toFixed(2) + "%" : (err < 0.01 ? "0.00%" : "N/A (Div by 0)");
+                return { abs: err.toFixed(2), pct: pct };
+            },
+            
+            updateValidationUI() {
+                const ds = AppState.currentDataset;
+                const tbl = document.getElementById('tbl-validation');
+                let tbodyHTML = "";
+
+                document.getElementById('ds-source-info').innerText = ds.source;
+                document.getElementById('ds-notes-info').innerText = ds.notes;
+                
+                const mainP = AppState.particles.find(p => p.isMain);
+                if (!mainP) return;
+
+                const sim = { maxAlt: mainP.maxAlt, maxDist: mainP.maxDist, flightTime: mainP.flightTime };
+                let validationMode = "none";
+                let statusBoxHTML = "";
+                let statusBoxClass = "";
+
+                const isBenchmarkValid = (AppState.modelType === 1 && AppState.params.windSpeed === 0 && AppState.params.altitude === 0 && AppState.particleMode === 'single' && !AppState.visuals.terrainCollision);
+
+                if (ds.id === 'benchmark1') {
+                    if (isBenchmarkValid && ds.referenceAnalytic) {
+                        validationMode = "analytic";
+                        const ref = ds.referenceAnalytic;
+                        const errAlt = this.calcError(ref.maxAlt, sim.maxAlt);
+                        const errDist = this.calcError(ref.maxDist, sim.maxDist);
+                        const errTime = this.calcError(ref.flightTime, sim.flightTime);
+
+                        statusBoxHTML = `<i class="fa-solid fa-check-double text-purple-400"></i> MEMVALIDASI INTEGRASI NUMERIK MODEL 1 THD ANALITIK`;
+                        statusBoxClass = "p-3 rounded-lg border bg-purple-900/30 border-purple-800 text-purple-300 text-xs font-bold shadow-inner";
+
+                        tbodyHTML += `
+                            <tr><td class="p-2">Hmax (m)</td><td class="p-2"><span class="badge-analitik text-[9px] px-1 py-0.5 rounded">Ref Analitik</span> ${ref.maxAlt.toFixed(2)}</td><td class="p-2">${sim.maxAlt.toFixed(2)}</td><td class="p-2 text-orange-400 font-mono">${errAlt.pct}</td></tr>
+                            <tr><td class="p-2">Jarak Max (m)</td><td class="p-2"><span class="badge-analitik text-[9px] px-1 py-0.5 rounded">Ref Analitik</span> ${ref.maxDist.toFixed(2)}</td><td class="p-2">${sim.maxDist.toFixed(2)}</td><td class="p-2 text-orange-400 font-mono">${errDist.pct}</td></tr>
+                            <tr><td class="p-2">Waktu (s)</td><td class="p-2"><span class="badge-analitik text-[9px] px-1 py-0.5 rounded">Ref Analitik</span> ${ref.flightTime.toFixed(2)}</td><td class="p-2">${sim.flightTime.toFixed(2)}</td><td class="p-2 text-orange-400 font-mono">${errTime.pct}</td></tr>
+                        `;
+                    } else {
+                        statusBoxHTML = `<i class="fa-solid fa-triangle-exclamation text-yellow-500"></i> BENCHMARK TIDAK VALID (Gunakan Model 1, Single, Wind 0, Alt 0, Terrain OFF)`;
+                        statusBoxClass = "p-3 rounded-lg border bg-yellow-900/30 border-yellow-800 text-yellow-300 text-xs shadow-inner";
+                    }
+                }
+
+                if (ds.otherObserved) {
+                    if (validationMode === "none" && ds.id !== 'benchmark1') {
+                        statusBoxHTML = `<i class="fa-solid fa-circle-info text-sky-400"></i> OBSERVASI NON-COMPARABLE DENGAN HMAX PROYEKTIL.`;
+                        statusBoxClass = "p-3 rounded-lg border bg-sky-900/30 border-sky-800 text-sky-300 text-xs shadow-inner";
+                    }
+                    
+                    for (const [key, data] of Object.entries(ds.otherObserved)) {
+                        tbodyHTML += `
+                            <tr class="bg-slate-800/80 border-t border-slate-700/50">
+                                <td class="p-2 text-sky-300">${key}</td>
+                                <td class="p-2 font-bold">${data.value} <div class="text-[8px] font-normal text-slate-500 mt-0.5">Src: ${data.source}</div></td>
+                                <td colspan="2" class="p-2 text-slate-500 italic text-[9px] leading-tight">${data.comparability}</td>
+                            </tr>
+                        `;
+                    }
+                }
+
+                if (tbodyHTML === "") {
+                    tbodyHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500 italic">Tidak ada data referensi terverifikasi untuk disandingkan.</td></tr>`;
+                    if(statusBoxHTML === "") {
+                        statusBoxHTML = `<i class="fa-solid fa-ban text-slate-500"></i> TIDAK ADA DATA VALIDASI UNTUK EVENT INI`;
+                        statusBoxClass = "p-3 rounded-lg border bg-slate-800 border-slate-700 text-slate-400 text-xs";
+                    }
+                }
+
+                document.getElementById('validation-status-box').innerHTML = statusBoxHTML;
+                document.getElementById('validation-status-box').className = statusBoxClass;
+                tbl.innerHTML = tbodyHTML;
+            },
+
+            runAutoTune() {
+                const targetType = document.getElementById('at-target').value;
+                const paramType = document.getElementById('at-param').value;
+                const targetVal = parseFloat(document.getElementById('at-value').value);
+                const resEl = document.getElementById('at-result');
+                
+                if (isNaN(targetVal) || targetVal <= 0) {
+                    resEl.innerHTML = "Error: Nilai target tidak valid."; resEl.classList.remove('hidden'); return;
+                }
+
+                resEl.classList.remove('hidden');
+                resEl.innerHTML = "Menjalankan optimasi (Coarse-to-Fine Grid Search)...";
+
+                setTimeout(() => {
+                    let low = 0, high = 1000;
+                    if (paramType === 'angle') { low = 1; high = 89; }
+                    else if (paramType === 'v0') { low = 1; high = 800; }
+                    else if (paramType === 'windSpeed') { low = 0; high = 100; }
+
+                    let bestParam = AppState.params[paramType];
+                    let bestErr = Infinity, bestSim = null;
+                    const tempParams = { ...AppState.params };
+                    let trials = 0;
+
+                    let step = (high - low) / 20;
+                    let bestCoarse = low;
+                    for (let v = low; v <= high; v += step) {
+                        tempParams[paramType] = v;
+                        const res = PhysicsEngine.runBatchSimulation(tempParams, AppState.modelType);
+                        const val = targetType === 'hmax' ? res.maxAlt : (targetType === 'dist' ? res.maxDist : res.flightTime);
+                        if (!isNaN(val) && isFinite(val)) {
+                            const err = Math.abs(val - targetVal);
+                            trials++;
+                            if (err < bestErr) { bestErr = err; bestCoarse = v; bestSim = res; bestParam = v; }
+                        }
+                    }
+
+                    let fineLow = Math.max(low, bestCoarse - step);
+                    let fineHigh = Math.min(high, bestCoarse + step);
+                    let fineStep = (fineHigh - fineLow) / 20;
+                    for (let v = fineLow; v <= fineHigh; v += fineStep) {
+                        tempParams[paramType] = v;
+                        const res = PhysicsEngine.runBatchSimulation(tempParams, AppState.modelType);
+                        const val = targetType === 'hmax' ? res.maxAlt : (targetType === 'dist' ? res.maxDist : res.flightTime);
+                        if (!isNaN(val) && isFinite(val)) {
+                            const err = Math.abs(val - targetVal);
+                            trials++;
+                            if (err < bestErr) { bestErr = err; bestParam = v; bestSim = res; }
+                        }
+                    }
+                    
+                    if (!bestSim) bestSim = PhysicsEngine.runBatchSimulation(tempParams, AppState.modelType);
+
+                    let unit = paramType === 'v0' || paramType === 'windSpeed' ? 'm/s' : '°';
+                    let resUnit = targetType === 'time' ? 's' : 'm';
+                    let resVal = targetType === 'hmax' ? bestSim.maxAlt : (targetType === 'dist' ? bestSim.maxDist : bestSim.flightTime);
+                    let relErr = targetVal > 0 ? ((bestErr / targetVal) * 100).toFixed(2) : "0.00";
+
+                    resEl.innerHTML = `
+                        <div class="text-pink-400 font-bold mb-1 border-b border-pink-900 pb-1">HASIL OPTIMASI MODEL</div>
+                        <table class="w-full text-slate-300">
+                            <tr><td>Parameter Opt:</td><td class="text-white font-bold text-right">${bestParam.toFixed(2)} ${unit}</td></tr>
+                            <tr><td>Output Simulasi:</td><td class="text-white font-bold text-right">${resVal.toFixed(2)} ${resUnit}</td></tr>
+                            <tr><td>Abs Error:</td><td class="text-orange-400 text-right">${bestErr.toFixed(2)} ${resUnit} (${relErr}%)</td></tr>
+                            <tr><td>Iterasi:</td><td class="text-right">${trials} trial(s)</td></tr>
+                        </table>
+                        <button id="btn-apply-tune" class="w-full mt-2 py-1 bg-pink-700/50 hover:bg-pink-600 rounded text-white font-bold uppercase transition shadow-md">Terapkan Parameter</button>
+                    `;
+
+                    const mapIds = { 'v0': 'in_v0', 'angle': 'in_ang', 'windSpeed': 'in_wind' };
+                    document.getElementById('btn-apply-tune').onclick = (e) => {
+                        const inputId = mapIds[paramType];
+                        const rangeEl = document.getElementById(inputId);
+                        if(rangeEl) {
+                            rangeEl.value = bestParam;
+                            rangeEl.dispatchEvent(new Event('input'));
+                            e.target.innerText = "BERHASIL DITERAPKAN ✓";
+                            e.target.classList.remove('bg-pink-700/50', 'hover:bg-pink-600');
+                            e.target.classList.add('bg-emerald-600', 'hover:bg-emerald-500');
+                        }
+                    };
+                }, 50); 
+            },
+
+            runSensitivity() {
+                const pType = document.getElementById('sens-param').value;
+                const oType = document.getElementById('sens-output').value;
+                const ctx = document.getElementById('chart-sens').getContext('2d');
+                if(window.sensChart) window.sensChart.destroy();
+                if(window.sensTimeout) clearTimeout(window.sensTimeout);
+                
+                document.getElementById('sens-chart-container').classList.remove('hidden');
+                
+                window.sensTimeout = setTimeout(() => {
+                    const tempParams = { ...AppState.params };
+                    const xValues = [];
+                    const yValues = [];
+
+                    let min = 0, max = 100, step = 10;
+                    if (pType === 'angle') { min = 10; max = 85; step = 5; }
+                    else if (pType === 'v0') { min = Math.max(10, tempParams.v0 - 50); max = tempParams.v0 + 50; step = 10; }
+                    else if (pType === 'mass') { min = 1; max = 100; step = 10; } 
+                    else if (pType === 'diameter') { min = 1; max = 20; step = 2; } 
+                    else if (pType === 'windSpeed') { min = 0; max = 50; step = 5; }
+
+                    for (let v = min; v <= max; v += step) {
+                        tempParams[pType] = v;
+                        const res = PhysicsEngine.runBatchSimulation(tempParams, AppState.modelType);
+                        const out = oType === 'hmax' ? res.maxAlt : (oType === 'dist' ? res.maxDist : res.flightTime);
+                        if (!isNaN(out) && isFinite(out)) {
+                            xValues.push(v);
+                            yValues.push(out);
+                        }
+                    }
+
+                    let pLabel = pType; let oLabel = oType === 'hmax' ? 'Hmax (m)' : (oType === 'dist' ? 'Range (m)' : 'Time (s)');
+                    
+                    window.sensChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: xValues,
+                            datasets: [{ label: oLabel, data: yValues, borderColor: '#14b8a6', backgroundColor: 'rgba(20, 184, 166, 0.2)', fill: true, tension: 0.3, pointRadius: 3 }]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                            scales: { x: { grid: { color: 'rgba(255,255,255,0.05)' }, title: {display: true, text: pLabel, color: '#64748b', font:{size:9}} },
+                                      y: { grid: { color: 'rgba(255,255,255,0.05)' } } }
+                        }
+                    });
+                }, 10);
+            },
+
+            compareModels() {
+                const resEl = document.getElementById('model-compare-result');
+                resEl.classList.remove('hidden');
+                resEl.innerHTML = `<div class="text-center text-xs text-slate-400 py-2">Menjalankan simulasi komparasi...</div>`;
+                
+                setTimeout(() => {
+                    const tempP = { ...AppState.params };
+                    const res1 = PhysicsEngine.runBatchSimulation(tempP, 1);
+                    const res2 = PhysicsEngine.runBatchSimulation(tempP, 2);
+                    const res3 = PhysicsEngine.runBatchSimulation(tempP, 3);
+
+                    let html = `
+                        <table class="w-full text-left text-[9px] mt-2 border border-slate-700 bg-slate-800/80 rounded overflow-hidden shadow-inner">
+                            <thead class="bg-slate-700 text-slate-300">
+                                <tr><th class="p-1">Output</th><th class="p-1">Model 1 (Ideal)</th><th class="p-1">M2 (Stokes)</th><th class="p-1 text-orange-300">M3 (Quad)</th></tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-700 font-mono text-slate-300">
+                                <tr><td class="p-1 font-sans text-slate-400">Hmax (m)</td><td class="p-1">${res1.maxAlt.toFixed(1)}</td><td class="p-1">${res2.maxAlt.toFixed(1)}</td><td class="p-1 text-white font-bold">${res3.maxAlt.toFixed(1)}</td></tr>
+                                <tr><td class="p-1 font-sans text-slate-400">Range (m)</td><td class="p-1">${res1.maxDist.toFixed(1)}</td><td class="p-1">${res2.maxDist.toFixed(1)}</td><td class="p-1 text-white font-bold">${res3.maxDist.toFixed(1)}</td></tr>
+                                <tr><td class="p-1 font-sans text-slate-400">Time (s)</td><td class="p-1">${res1.flightTime.toFixed(1)}</td><td class="p-1">${res2.flightTime.toFixed(1)}</td><td class="p-1 text-white font-bold">${res3.flightTime.toFixed(1)}</td></tr>
+                            </tbody>
+                        </table>
+                    `;
+                    resEl.innerHTML = html;
+                }, 50);
+            }
+        };
+
+        // ==========================================
+        // 4. 3D VISUALIZATION ENGINE 
+        // ==========================================
+        const Visuals = {
+            CRATER_HEIGHT: 20, 
+            MAX_TRAJECTORY_POINTS: 5000, 
+            
+            init() {
+                this.scene = new THREE.Scene();
+                
+                this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 5000);
+                this.camera.position.set(0, 80, 200);
+
+                this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(window.devicePixelRatio > 1 ? 1.5 : 1);
+                
+                document.getElementById('canvas-container').appendChild(this.renderer.domElement);
+
+                this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.enableDamping = true;
+                this.controls.dampingFactor = 0.05;
+                this.controls.minPolarAngle = 0.05;
+                this.controls.maxPolarAngle = Math.PI - 0.05; 
+                
+                this.controls.enabled = true;
+                this.controls.enableRotate = true;
+                this.controls.enableZoom = true;
+                this.controls.enablePan = true;
+                this.controls.zoomSpeed = 1.2;
+                this.controls.minDistance = 10;
+                this.controls.maxDistance = 1000;
+
+                this.controls.mouseButtons = {
+                    LEFT: THREE.MOUSE.ROTATE,
+                    MIDDLE: THREE.MOUSE.DOLLY,
+                    RIGHT: THREE.MOUSE.PAN
+                };
+                this.controls.touches = {
+                    ONE: THREE.TOUCH.ROTATE,
+                    TWO: THREE.TOUCH.DOLLY_PAN
+                };
+
+                this.renderer.domElement.style.pointerEvents = 'auto';
+                this.renderer.domElement.style.touchAction = 'none';
+
+                this.renderer.domElement.addEventListener('pointerdown', () => {
+                    if(AppState.cameraMode === 'follow') {
+                        if (typeof window.setCameraMode === 'function') {
+                            window.setCameraMode('manual');
+                        }
+                    }
+                });
+
+                this.setupEnvironmentCore();
+                this.rebuildEnvironment();
+                this.setupParticleSystem();
+                this.setupSmoke();
+                this.setupHelpers();
+
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            },
+
+            setupEnvironmentCore() {
+                this.ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+                this.scene.add(this.ambientLight);
+                this.sunLight = new THREE.DirectionalLight(0xffedd5, 1);
+                this.sunLight.position.set(100, 200, 50);
+                this.scene.add(this.sunLight);
+                
+                this.gridHelper = new THREE.GridHelper(1000, 100, 0x334155, 0x0f172a);
+                this.scene.add(this.gridHelper);
+                
+                this.rulerGroup = new THREE.Group();
+                this.scene.add(this.rulerGroup);
+            },
+
+            disposeObject3D(obj) {
+                if (!obj) return;
+                obj.traverse(child => {
+                    if (child.isMesh || child.isPoints || child.isLine || child.isSprite) {
+                        if (child.geometry) child.geometry.dispose();
+                        if (child.material) {
+                            if (Array.isArray(child.material)) child.material.forEach(m => { if(m.map) m.map.dispose(); m.dispose(); });
+                            else { if(child.material.map) child.material.map.dispose(); child.material.dispose(); }
+                        }
+                    }
+                });
+            },
+
+            getTerrainHeightWorld(worldX, worldZ) {
+                const type = AppState.visuals.mountain;
+                if (type === 'flat') return 0;
+                
+                const r = Math.sqrt(worldX*worldX + worldZ*worldZ);
+                const baseRad = 90;
+                let y = 0;
+
+                if (r < baseRad) {
+                    if (type === 'cone') {
+                        let cRad = 12;
+                        y = this.CRATER_HEIGHT * (1 - r/baseRad);
+                        if (r < cRad) y = this.CRATER_HEIGHT - (cRad - r)*0.5; 
+                    } else if (type === 'caldera') {
+                        let rim = 35;
+                        if (r < rim) y = this.CRATER_HEIGHT - (rim - r)*0.8; 
+                        else y = this.CRATER_HEIGHT * (1 - (r-rim)/(baseRad-rim));
+                    } else if (type === 'krakatau') {
+                        let noise = (Math.sin(worldX*0.1) + Math.cos(worldZ*0.15)) * 2;
+                        let rim = 15 + (Math.sin(Math.atan2(worldZ, worldX)*5)*2);
+                        if (r < rim) y = this.CRATER_HEIGHT - (rim - r) + noise*0.2;
+                        else y = this.CRATER_HEIGHT * (1 - (r-rim)/(baseRad-rim)) + noise * (1-r/baseRad);
+                    }
+                }
+                return y;
+            },
+
+            rebuildVolcano() {
+                if (this.volcanoGroup) {
+                    this.disposeObject3D(this.volcanoGroup);
+                    this.scene.remove(this.volcanoGroup);
+                }
+                
+                this.volcanoGroup = new THREE.Group();
+                const type = AppState.visuals.mountain;
+
+                if (type !== 'flat') {
+                    const vGeo = new THREE.PlaneGeometry(200, 200, 128, 128);
+                    vGeo.rotateX(-Math.PI / 2);
+                    const pos = vGeo.attributes.position;
+                    const colors = [];
+                    const cBase = new THREE.Color(0x2d1b14); 
+                    const cMid = new THREE.Color(0x3a302a);  
+                    const cTop = new THREE.Color(0x1a1a1a);  
+                    const cCrater = new THREE.Color(0x0a0a0a); 
+
+                    for(let i=0; i<pos.count; i++) {
+                        let x = pos.getX(i);
+                        let z = pos.getZ(i);
+                        let r = Math.sqrt(x*x + z*z);
+                        
+                        let y = this.getTerrainHeightWorld(x, z);
+                        pos.setY(i, y);
+
+                        let c = new THREE.Color();
+                        if (y < this.CRATER_HEIGHT * 0.3) c.copy(cBase).lerp(cMid, y/(this.CRATER_HEIGHT*0.3));
+                        else if (y < this.CRATER_HEIGHT * 0.8) c.copy(cMid).lerp(cTop, (y-this.CRATER_HEIGHT*0.3)/(this.CRATER_HEIGHT*0.5));
+                        else {
+                            if (r < (type==='caldera'?25:15)) c.copy(cCrater);
+                            else c.copy(cTop);
+                        }
+                        colors.push(c.r, c.g, c.b);
+                    }
+                    
+                    vGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                    vGeo.computeVertexNormals();
+                    const vMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+                    const volcano = new THREE.Mesh(vGeo, vMat);
+                    
+                    volcano.position.y = 0; 
+                    this.volcanoGroup.add(volcano);
+
+                    const lavaGeo = new THREE.CircleGeometry(type === 'caldera' ? 14 : (type === 'krakatau' ? 9 : 7.5), 32);
+                    const lavaMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
+                    const lava = new THREE.Mesh(lavaGeo, lavaMat);
+                    lava.rotation.x = -Math.PI / 2;
+                    lava.position.y = this.CRATER_HEIGHT + 0.1; 
+                    this.volcanoGroup.add(lava);
+                }
+                
+                this.scene.add(this.volcanoGroup);
+            },
+
+            rebuildEnvironment() {
+                const envType = AppState.visuals.env;
+                
+                if(this.environmentGroup) { 
+                    this.disposeObject3D(this.environmentGroup); 
+                    this.scene.remove(this.environmentGroup); 
+                }
+                this.environmentGroup = new THREE.Group();
+
+                this.scene.background = new THREE.Color(0x050508);
+                this.scene.fog = AppState.visuals.fog ? new THREE.FogExp2(0x050508, 0.002) : null;
+                this.gridHelper.visible = AppState.visuals.grid;
+
+                if (envType === 'island') {
+                    const skyGeo = new THREE.SphereGeometry(2000, 32, 15);
+                    const skyMat = new THREE.ShaderMaterial({
+                        uniforms: {
+                            topColor: { value: new THREE.Color(0x0a1128) },
+                            bottomColor: { value: new THREE.Color(0x1a2e4c) },
+                            offset: { value: 33 },
+                            exponent: { value: 0.6 }
+                        },
+                        vertexShader: `
+                            varying vec3 vWorldPosition;
+                            void main() {
+                                vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                                vWorldPosition = worldPosition.xyz;
+                                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                            }`,
+                        fragmentShader: `
+                            uniform vec3 topColor;
+                            uniform vec3 bottomColor;
+                            uniform float offset;
+                            uniform float exponent;
+                            varying vec3 vWorldPosition;
+                            void main() {
+                                float h = normalize(vWorldPosition + offset).y;
+                                gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+                            }`,
+                        side: THREE.BackSide
+                    });
+                    const sky = new THREE.Mesh(skyGeo, skyMat);
+                    this.environmentGroup.add(sky);
+
+                    if(AppState.visuals.fog) this.scene.fog = new THREE.FogExp2(0x1a2e4c, 0.0012);
+
+                    if (AppState.visuals.sea) {
+                        const seaGeo = new THREE.PlaneGeometry(4000, 4000, 64, 64);
+                        seaGeo.rotateX(-Math.PI / 2);
+                        this.seaMat = new THREE.ShaderMaterial({
+                            uniforms: { time: { value: 0 } },
+                            vertexShader: `
+                                uniform float time;
+                                void main() {
+                                    vec3 pos = position;
+                                    pos.y += sin(pos.x * 0.05 + time) * 1.5 + cos(pos.z * 0.05 + time) * 1.5;
+                                    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                                }
+                            `,
+                            fragmentShader: `
+                                void main() { gl_FragColor = vec4(0.04, 0.15, 0.25, 0.85); }
+                            `,
+                            transparent: true
+                        });
+                        this.seaMesh = new THREE.Mesh(seaGeo, this.seaMat);
+                        this.seaMesh.position.y = -0.5; 
+                        this.environmentGroup.add(this.seaMesh);
+                    }
+                } else if (envType === 'land') {
+                    const landGeo = new THREE.PlaneGeometry(4000, 4000);
+                    const landMat = new THREE.MeshLambertMaterial({ color: 0x1c1917 });
+                    const land = new THREE.Mesh(landGeo, landMat);
+                    land.rotation.x = -Math.PI / 2;
+                    land.position.y = -0.1;
+                    this.environmentGroup.add(land);
+                }
+
+                this.scene.add(this.environmentGroup);
+                this.rebuildVolcano();
+            },
+
+            setupParticleSystem() {
+                this.maxParticles = 500;
+                this.particleGroup = new THREE.Group();
+                this.scene.add(this.particleGroup);
+                this.rebuildParticleInstances();
+
+                const mainGeo = new THREE.SphereGeometry(1.5, 16, 16);
+                const mainMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
+                this.mainMesh = new THREE.Mesh(mainGeo, mainMat);
+                this.scene.add(this.mainMesh);
+
+                this.trajGeo = new THREE.BufferGeometry();
+                this.trajPositions = new Float32Array(this.MAX_TRAJECTORY_POINTS * 3);
+                this.trajGeo.setAttribute('position', new THREE.BufferAttribute(this.trajPositions, 3));
+                this.trajGeo.setDrawRange(0, 0);
+
+                const trajMat = new THREE.LineBasicMaterial({ color: 0xf97316, transparent: true, opacity: 0.6 });
+                this.trajectoryLine = new THREE.Line(this.trajGeo, trajMat);
+                this.scene.add(this.trajectoryLine);
+                
+                this.tempVec = new THREE.Vector3();
+            },
+
+            rebuildParticleInstances() {
+                if(this.fragMesh) { this.disposeObject3D(this.fragMesh); this.particleGroup.remove(this.fragMesh); }
+                if(this.ashMesh) { this.disposeObject3D(this.ashMesh); this.particleGroup.remove(this.ashMesh); }
+                
+                const fGeo = new THREE.DodecahedronGeometry(1.2, 0);
+                const fMat = new THREE.MeshLambertMaterial({ color: 0x94a3b8 });
+                this.fragMesh = new THREE.InstancedMesh(fGeo, fMat, this.maxParticles);
+                this.fragMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                this.particleGroup.add(this.fragMesh);
+
+                const aGeo = new THREE.SphereGeometry(0.5, 8, 8);
+                const aMat = new THREE.MeshLambertMaterial({ color: 0x64748b });
+                this.ashMesh = new THREE.InstancedMesh(aGeo, aMat, this.maxParticles);
+                this.ashMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                this.particleGroup.add(this.ashMesh);
+
+                this.dummy = new THREE.Object3D();
+            },
+
+            setupSmoke() {
+                this.smokeCount = 150;
+                this.smokeParticles = [];
+                const sGeo = new THREE.PlaneGeometry(6, 6); 
+                const sMat = new THREE.MeshBasicMaterial({ color: 0x475569, transparent: true, opacity: 0.25, depthWrite: false });
+                this.smokeMesh = new THREE.InstancedMesh(sGeo, sMat, this.smokeCount);
+                this.smokeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                this.scene.add(this.smokeMesh);
+                this.smokeDummy = new THREE.Object3D();
+
+                for(let i=0; i<this.smokeCount; i++) {
+                    this.smokeParticles.push({
+                        x: (Math.random()-0.5)*10, y: this.CRATER_HEIGHT + Math.random()*30, z: (Math.random()-0.5)*10,
+                        life: Math.random(), speed: 2 + Math.random()*3, scale: 1 + Math.random()*2, rot: Math.random()*Math.PI
+                    });
+                }
+            },
+
+            updateSmoke(dt) {
+                this.smokeMesh.visible = AppState.visuals.plume;
+                if (!AppState.visuals.plume) return;
+                
+                const safeDt = Math.min(dt, 0.05);
+                const windX = AppState.params.windSpeed * Math.cos(AppState.params.windDir * Math.PI/180);
+                const windZ = AppState.params.windSpeed * Math.sin(AppState.params.windDir * Math.PI/180);
+                const intFactor = AppState.visuals.smokeInt / 50;
+
+                for(let i=0; i<this.smokeCount; i++) {
+                    let p = this.smokeParticles[i];
+                    p.life += safeDt * 0.2;
+                    p.y += p.speed * safeDt * intFactor;
+                    p.x += windX * 0.4 * safeDt;
+                    p.z += windZ * 0.4 * safeDt;
+
+                    if (p.life > 1) {
+                        p.life = 0;
+                        p.y = this.CRATER_HEIGHT;
+                        p.x = (Math.random()-0.5)*10;
+                        p.z = (Math.random()-0.5)*10;
+                    }
+
+                    const scale = p.scale * Math.sin(p.life * Math.PI) * intFactor;
+                    this.smokeDummy.position.set(p.x, p.y, p.z);
+                    this.smokeDummy.scale.set(scale, scale, scale);
+                    this.smokeDummy.quaternion.copy(this.camera.quaternion);
+                    this.smokeDummy.rotateZ(p.rot + p.life*2);
+                    this.smokeDummy.updateMatrix();
+                    this.smokeMesh.setMatrixAt(i, this.smokeDummy.matrix);
+                }
+                this.smokeMesh.instanceMatrix.needsUpdate = true;
+            },
+
+            setupHelpers() {
+                this.windArrow = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,this.CRATER_HEIGHT,0), 30, 0x0ea5e9, 5, 3);
+                this.scene.add(this.windArrow);
+            },
+
+            createTextSprite(message) {
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                context.font = "Bold 24px Inter, Arial, sans-serif";
+                const metrics = context.measureText(message);
+                const textWidth = metrics.width;
+                
+                canvas.width = textWidth + 40;
+                canvas.height = 64;
+                
+                context.fillStyle = "rgba(15, 23, 42, 0.85)";
+                context.strokeStyle = "#0ea5e9";
+                context.lineWidth = 2;
+                context.beginPath();
+                context.roundRect(5, 5, canvas.width - 10, canvas.height - 10, 8);
+                context.fill();
+                context.stroke();
+                
+                context.fillStyle = "#ffffff";
+                context.font = "Bold 24px Inter, Arial, sans-serif";
+                context.textAlign = "center";
+                context.textBaseline = "middle";
+                context.fillText(message, canvas.width / 2, canvas.height / 2);
+                
+                const texture = new THREE.CanvasTexture(canvas);
+                const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.scale.set(canvas.width / 5, canvas.height / 5, 1);
+                return sprite;
+            },
+
+            rebuildRuler() {
+                if (this.rulerGroup) {
+                    this.disposeObject3D(this.rulerGroup);
+                    this.scene.remove(this.rulerGroup);
+                }
+                this.rulerGroup = new THREE.Group();
+                this.scene.add(this.rulerGroup);
+
+                if (!AppState.visuals.ruler) return;
+
+                const mainP = AppState.particles.find(p => p.isMain);
+                if (!mainP || !mainP.landed) return;
+
+                const startY = this.CRATER_HEIGHT + 0.25;
+                const endY = mainP.y + this.CRATER_HEIGHT + 0.25;
+                const startPt = new THREE.Vector3(0, startY, 0);
+                const endPt = new THREE.Vector3(mainP.x, endY, mainP.z);
+                
+                const lineGeo = new THREE.BufferGeometry().setFromPoints([startPt, endPt]);
+                const lineMat = new THREE.LineDashedMaterial({ color: 0x38bdf8, dashSize: 2, gapSize: 2, linewidth: 2 });
+                const line = new THREE.Line(lineGeo, lineMat);
+                line.computeLineDistances();
+                this.rulerGroup.add(line);
+                
+                const markGeo = new THREE.SphereGeometry(0.5, 16, 16);
+                const startMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+                const endMat = new THREE.MeshBasicMaterial({ color: 0xf97316 });
+                const sMesh = new THREE.Mesh(markGeo, startMat); sMesh.position.copy(startPt);
+                const eMesh = new THREE.Mesh(markGeo, endMat); eMesh.position.copy(endPt);
+                this.rulerGroup.add(sMesh);
+                this.rulerGroup.add(eMesh);
+                
+                const dist = Math.sqrt(mainP.x*mainP.x + mainP.z*mainP.z);
+                let tickInt = 5;
+                if (dist > 1000) tickInt = 100;
+                else if (dist > 200) tickInt = 50;
+                else if (dist > 50) tickInt = 10;
+                
+                const numTicks = Math.floor(dist / tickInt);
+                const tickGeo = new THREE.BufferGeometry();
+                const tPoints = [];
+                for (let i = 1; i <= numTicks; i++) {
+                    const t = (i * tickInt) / dist;
+                    if (t >= 1) break;
+                    const pt = new THREE.Vector3().lerpVectors(startPt, endPt, t);
+                    tPoints.push(new THREE.Vector3(pt.x, pt.y - 1, pt.z));
+                    tPoints.push(new THREE.Vector3(pt.x, pt.y + 1, pt.z));
+                }
+                if (tPoints.length > 0) {
+                    tickGeo.setFromPoints(tPoints);
+                    const tickMat = new THREE.LineBasicMaterial({ color: 0x38bdf8 });
+                    const ticks = new THREE.LineSegments(tickGeo, tickMat);
+                    this.rulerGroup.add(ticks);
+                }
+                
+                if (AppState.visuals.rulerLabel) {
+                    const midPt = new THREE.Vector3().lerpVectors(startPt, endPt, 0.5);
+                    midPt.y += 6; 
+                    const labelStr = `Jarak: ${dist.toLocaleString('id-ID', {minimumFractionDigits: 1, maximumFractionDigits: 1})} m`;
+                    const sprite = this.createTextSprite(labelStr);
+                    sprite.position.copy(midPt);
+                    this.rulerGroup.add(sprite);
+                }
+            },
+
+            updateMeshes() {
+                const windRad = AppState.params.windDir * (Math.PI / 180);
+                const windMag = AppState.params.windSpeed;
+                if(windMag > 0 && AppState.ui.showOverlay && AppState.modelType !== 1) {
+                    document.getElementById('legend-wind-note').innerText = "* Model 1 mengabaikan angin & drag";
+                    this.windArrow.setDirection(new THREE.Vector3().set(Math.cos(windRad), 0, Math.sin(windRad)).normalize());
+                    this.windArrow.setLength(20 + windMag * 0.5, 5, 3);
+                    this.windArrow.visible = true;
+                } else {
+                    if (AppState.modelType === 1) document.getElementById('legend-wind-note').innerText = "* Model 1 (IDEAL) mengabaikan angin";
+                    this.windArrow.visible = false;
+                }
+
+                let fragCount = 0;
+                let ashCount = 0;
+                let mainActive = false;
+                
+                AppState.particles.forEach((p) => {
+                    const visY = p.y + this.CRATER_HEIGHT; 
+                    
+                    if (p.isMain) {
+                        this.mainMesh.position.set(p.x, visY, p.z);
+                        this.mainMesh.visible = true;
+                        mainActive = true;
+                        
+                        document.getElementById('pi-id').innerText = p.id;
+                        document.getElementById('pi-status').innerText = p.landed ? "Landed" : "Flying";
+                        document.getElementById('pi-pos-x').innerText = p.x.toFixed(1) + " m";
+                        document.getElementById('pi-pos-y').innerText = p.y.toFixed(1) + " m";
+                        document.getElementById('pi-pos-z').innerText = p.z.toFixed(1) + " m";
+                        document.getElementById('pi-alt').innerText = `${(p.y + AppState.params.altitude).toFixed(1)} m`;
+                        document.getElementById('pi-vel-x').innerText = p.vx.toFixed(1) + " m/s";
+                        document.getElementById('pi-vel-y').innerText = p.vy.toFixed(1) + " m/s";
+                        document.getElementById('pi-vel-z').innerText = p.vz.toFixed(1) + " m/s";
+                        document.getElementById('pi-speed').innerText = `${Math.sqrt(p.vx*p.vx + p.vy*p.vy + p.vz*p.vz).toFixed(1)} m/s`;
+                        document.getElementById('pi-time').innerText = `${p.flightTime.toFixed(2)} s`;
+                    } else {
+                        this.dummy.position.set(p.x, visY, p.z);
+                        let s = p.visScale;
+                        this.dummy.scale.set(s,s,s);
+                        
+                        if (p.visType === 'fragment' && fragCount < this.maxParticles) {
+                            this.dummy.rotation.set(p.flightTime + p.visSeedX, p.flightTime*1.5 + p.visSeedY, p.flightTime*0.5);
+                            this.dummy.updateMatrix();
+                            this.fragMesh.setMatrixAt(fragCount++, this.dummy.matrix);
+                        } else if ((p.visType === 'ash' || p.visType === 'sphere') && ashCount < this.maxParticles) {
+                            this.dummy.rotation.set(0,0,0);
+                            this.dummy.updateMatrix();
+                            this.ashMesh.setMatrixAt(ashCount++, this.dummy.matrix);
+                        }
+                    }
+                });
+                
+                this.fragMesh.count = AppState.particleMode === 'single' ? 0 : fragCount;
+                this.ashMesh.count = AppState.particleMode === 'single' ? 0 : ashCount;
+                this.fragMesh.instanceMatrix.needsUpdate = true;
+                this.ashMesh.instanceMatrix.needsUpdate = true;
+                
+                this.trajectoryLine.visible = AppState.ui.showOverlay;
+
+                let ptCount = Math.min(AppState.mainParticleHistory.length, this.MAX_TRAJECTORY_POINTS);
+                for(let i=0; i<ptCount; i++) {
+                    let h = AppState.mainParticleHistory[i];
+                    this.trajPositions[i*3] = h.x;
+                    this.trajPositions[i*3+1] = h.y + this.CRATER_HEIGHT;
+                    this.trajPositions[i*3+2] = h.z;
+                }
+                
+                if (mainActive && ptCount < this.MAX_TRAJECTORY_POINTS && AppState.particles[0]) {
+                     this.trajPositions[ptCount*3] = this.mainMesh.position.x;
+                     this.trajPositions[ptCount*3+1] = this.mainMesh.position.y;
+                     this.trajPositions[ptCount*3+2] = this.mainMesh.position.z;
+                     ptCount++;
+                }
+
+                this.trajGeo.attributes.position.needsUpdate = true;
+                this.trajGeo.setDrawRange(0, ptCount);
+
+                if (AppState.cameraMode === 'follow' && mainActive) {
+                    const targetPos = this.mainMesh.position;
+                    const offset = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+                    this.controls.target.copy(targetPos);
+                    this.camera.position.copy(targetPos).add(offset);
+                }
+            },
+
+            renderHistoryFrame(timeSec) {
+                if (AppState.mainParticleHistory.length === 0) return;
+                const history = AppState.mainParticleHistory;
+
+                if (timeSec <= history[0].t) { this.applyHistory(history[0], 1); return; }
+                if (timeSec >= history[history.length - 1].t) { this.applyHistory(history[history.length - 1], history.length); return; }
+
+                let idx1 = 0;
+                for (let i = 0; i < history.length - 1; i++) {
+                    if (timeSec >= history[i].t && timeSec <= history[i+1].t) { idx1 = i; break; }
+                }
+                let idx2 = idx1 + 1;
+                let h1 = history[idx1];
+                let h2 = history[idx2];
+                
+                let alpha = (timeSec - h1.t) / (h2.t - h1.t);
+                if (isNaN(alpha)) alpha = 0;
+
+                const lerp = (a, b, t) => a + (b - a) * t;
+                const iX = lerp(h1.x, h2.x, alpha);
+                const iY = lerp(h1.y, h2.y, alpha);
+                const iZ = lerp(h1.z, h2.z, alpha);
+                const iVx = lerp(h1.vx, h2.vx, alpha);
+                const iVy = lerp(h1.vy, h2.vy, alpha);
+                const iVz = lerp(h1.vz, h2.vz, alpha);
+                const iAlt = lerp(h1.alt, h2.alt, alpha);
+                const iDist = lerp(h1.dist, h2.dist, alpha);
+
+                this.mainMesh.position.set(iX, iY + this.CRATER_HEIGHT, iZ);
+                this.fragMesh.count = 0; 
+                this.ashMesh.count = 0;
+                this.trajGeo.setDrawRange(0, idx2 + 1);
+
+                if (AppState.cameraMode === 'follow') {
+                    const targetPos = this.mainMesh.position;
+                    const offset = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+                    this.controls.target.copy(targetPos);
+                    this.camera.position.copy(targetPos).add(offset);
+                }
+                this.renderer.render(this.scene, this.camera);
+                
+                updateTelemetryUI(timeSec, iAlt, iDist, Math.sqrt(iVx*iVx + iVy*iVy + iVz*iVz), h2.hmax || iAlt, h2.rmax || iDist);
+            },
+
+            applyHistory(h, drawIdx) {
+                this.mainMesh.position.set(h.x, h.y + this.CRATER_HEIGHT, h.z);
+                this.fragMesh.count = 0;
+                this.ashMesh.count = 0;
+                this.trajGeo.setDrawRange(0, drawIdx);
+                if (AppState.cameraMode === 'follow') {
+                    const targetPos = this.mainMesh.position;
+                    const offset = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+                    this.controls.target.copy(targetPos);
+                    this.camera.position.copy(targetPos).add(offset);
+                }
+                this.renderer.render(this.scene, this.camera);
+                updateTelemetryUI(h.t, h.alt, h.dist, Math.sqrt(h.vx*h.vx + h.vy*h.vy + h.vz*h.vz), h.hmax || h.alt, h.rmax || h.dist);
+            },
+
+            render(dt) {
+                this.controls.update();
+                this.updateSmoke(dt);
+                if(this.seaMat) this.seaMat.uniforms.time.value += dt; 
+                this.renderer.render(this.scene, this.camera);
+            }
+        };
+
+        // ==========================================
+        // 5. MAIN SIMULATION LOOP (Fixed Timestep)
+        // ==========================================
+        let lastTime = performance.now();
+
+        function animate(currentTime) {
+            requestAnimationFrame(animate);
+            const frameDelta = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+
+            if (AppState.isReplaying) {
+                Visuals.render(frameDelta);
+                return; 
+            }
+
+            const physParams = PhysicsEngine.convertParams(AppState.params);
+
+            if (AppState.isRunning) {
+                AppState.accumulator += frameDelta * AppState.ui.playbackSpeed;
+                if (AppState.accumulator > 0.1) AppState.accumulator = 0.1; 
+
+                let stepCount = 0;
+                let simEndedThisFrame = false;
+
+                while (AppState.accumulator >= PhysicsEngine.dt && stepCount < 10) {
+                    let allLandedCheck = true;
+                    AppState.particles.forEach(p => {
+                        if (p.active) {
+                            PhysicsEngine.step(p, physParams, AppState.modelType);
+                            if (p.active) allLandedCheck = false;
+                        }
+                    });
+
+                    AppState.simTime += PhysicsEngine.dt;
+                    AppState.accumulator -= PhysicsEngine.dt;
+                    stepCount++;
+
+                    const mainP = AppState.particles.find(p => p.isMain);
+                    if (mainP && mainP.active) {
+                        const hTime = mainP.flightTime;
+                        const lastH = AppState.mainParticleHistory[AppState.mainParticleHistory.length - 1];
+                        if (!lastH || hTime > lastH.t + 0.09) { 
+                            AppState.mainParticleHistory.push({
+                                t: hTime, 
+                                x: mainP.x, y: mainP.y, z: mainP.z,
+                                vx: mainP.vx, vy: mainP.vy, vz: mainP.vz,
+                                alt: mainP.y + physParams.altitude,
+                                dist: Math.sqrt(mainP.x*mainP.x + mainP.z*mainP.z),
+                                hmax: mainP.maxAlt, rmax: mainP.maxDist
+                            });
+                        }
+                    }
+                    
+                    if (allLandedCheck) {
+                        simEndedThisFrame = true;
+                        AppState.accumulator = 0; 
+                        break; 
+                    }
+                }
+
+                if (stepCount > 0) updateChartsLazy();
+                
+                const mainP = AppState.particles.find(p => p.isMain);
+                if (mainP) {
+                    const speed = Math.sqrt(mainP.vx*mainP.vx + mainP.vy*mainP.vy + mainP.vz*mainP.vz);
+                    const dist = Math.sqrt(mainP.x*mainP.x + mainP.z*mainP.z);
+                    const alt = mainP.y + physParams.altitude;
+                    updateTelemetryUI(mainP.flightTime, alt, dist, speed, mainP.maxAlt, mainP.maxDist);
+                }
+
+                if (simEndedThisFrame) {
+                    AppState.isRunning = false;
+                    
+                    if(mainP) {
+                         const lastHist = AppState.mainParticleHistory[AppState.mainParticleHistory.length - 1];
+                         if (!lastHist || mainP.flightTime > lastHist.t) {
+                             AppState.mainParticleHistory.push({
+                                 t: mainP.flightTime, 
+                                 x: mainP.x, y: mainP.y, z: mainP.z,
+                                 vx: mainP.vx, vy: mainP.vy, vz: mainP.vz,
+                                 alt: mainP.y + physParams.altitude,
+                                 dist: Math.sqrt(mainP.x*mainP.x + mainP.z*mainP.z),
+                                 hmax: mainP.maxAlt, rmax: mainP.maxDist
+                             });
+                         }
+                    }
+                    Analysis.updateValidationUI();
+                    Visuals.rebuildRuler(); 
+                    checkSanity(); 
+                    updateChartsLazy(true); 
+                }
+            }
+
+            Visuals.updateMeshes();
+            Visuals.render(AppState.isRunning ? frameDelta * AppState.ui.playbackSpeed : frameDelta);
+        }
+
+        // ==========================================
+        // 6. UI & CHARTS 
+        // ==========================================
+        let chartAlt, chartDist;
+        let lastChartUpdate = 0;
+
+        function initCharts() {
+            const commonOpt = {
+                responsive: true, maintainAspectRatio: false, animation: false,
+                plugins: { legend: { display: false } },
+                scales: { 
+                    x: { ticks: { color: '#64748b', font: {size: 9} }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                    y: { ticks: { color: '#64748b', font: {size: 9} }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                }
+            };
+            if(chartAlt) chartAlt.destroy();
+            if(chartDist) chartDist.destroy();
+            
+            chartAlt = new Chart(document.getElementById('chart-alt').getContext('2d'), {
+                type: 'line', data: { labels: [], datasets: [{ label: 'Altitude (m)', data: [], borderColor: '#f97316', borderWidth: 1.5, tension: 0.1, pointRadius: 0 }] }, options: commonOpt
+            });
+            chartDist = new Chart(document.getElementById('chart-dist').getContext('2d'), {
+                type: 'line', data: { labels: [], datasets: [{ label: 'Range (m)', data: [], borderColor: '#0ea5e9', borderWidth: 1.5, tension: 0.1, pointRadius: 0 }] }, options: commonOpt
+            });
+        }
+
+        function updateChartsLazy(force = false) {
+            const now = performance.now();
+            if (!force && now - lastChartUpdate < 150) return; 
+            lastChartUpdate = now;
+
+            if(!chartAlt || !chartDist || !chartAlt.data || AppState.mainParticleHistory.length === 0) return;
+            const labels = AppState.mainParticleHistory.map(h => h.t.toFixed(1));
+            
+            chartAlt.data.labels = labels;
+            chartAlt.data.datasets[0].data = AppState.mainParticleHistory.map(h => h.alt);
+            chartAlt.update();
+
+            chartDist.data.labels = labels;
+            chartDist.data.datasets[0].data = AppState.mainParticleHistory.map(h => h.dist);
+            chartDist.update();
+        }
+
+        function updateTelemetryUI(time, alt, dist, speed, hmax, rmax) {
+            document.getElementById('tele-time').innerText = time.toFixed(2) + " s";
+            document.getElementById('tele-alt').innerText = alt.toFixed(1) + " m";
+            document.getElementById('tele-dist').innerText = dist.toFixed(1) + " m";
+            document.getElementById('tele-speed').innerText = speed.toFixed(1) + " m/s";
+            document.getElementById('tele-hmax').innerText = hmax.toFixed(1) + " m";
+            document.getElementById('tele-rmax').innerText = rmax.toFixed(1) + " m";
+            
+            const slider = document.getElementById('timeline-slider');
+            if (AppState.isRunning) {
+                slider.max = Math.max(parseFloat(slider.max || 0), time).toFixed(2);
+                slider.value = time;
+                document.getElementById('tl-max').innerText = parseFloat(slider.max).toFixed(1) + "s";
+            }
+            document.getElementById('tl-current').innerText = time.toFixed(1) + "s";
+        }
+
+        function checkSanity() {
+            const sanityPanel = document.getElementById('sanity-panel');
+            if (AppState.modelType === 1 && AppState.particleMode === 'single' && AppState.params.windSpeed === 0 && AppState.params.altitude === 0 && !AppState.visuals.terrainCollision) {
+                sanityPanel.classList.remove('hidden');
+                
+                const v0y = AppState.params.v0 * Math.sin(AppState.params.angle * Math.PI / 180);
+                const hmaxAnalitik = AppState.params.altitude + (v0y * v0y) / (2 * AppState.params.gravity);
+                document.getElementById('tele-sanity').innerText = hmaxAnalitik.toFixed(2) + " m";
+                
+                const mainP = AppState.particles.find(p => p.isMain);
+                if (mainP && AppState.simTime > 0) {
+                    const err = Math.abs(mainP.maxAlt - hmaxAnalitik);
+                    const pct = hmaxAnalitik > 0 ? ((err / hmaxAnalitik)*100).toFixed(4) : "0.000";
+                    document.getElementById('tele-sanity-err').innerText = `Err: ${pct}% (${err.toFixed(3)}m)`;
+                }
+            } else {
+                sanityPanel.classList.add('hidden');
+            }
+        }
+
+        function resetSimulationState() {
+            if (!Visuals.trajGeo) return;
+            AppState.isRunning = false; AppState.isReplaying = false;
+            AppState.simTime = 0; AppState.accumulator = 0;
+            
+            const physParams = PhysicsEngine.convertParams(AppState.params);
+            AppState.particles = []; AppState.mainParticleHistory = [];
+            
+            const count = AppState.particleMode === 'single' ? 1 : AppState.params.count;
+            for (let i = 0; i < count; i++) {
+                AppState.particles.push(PhysicsEngine.createParticle(physParams, i === 0));
+            }
+            
+            const mainP = AppState.particles.find(p => p.isMain);
+            if(mainP) {
+                AppState.mainParticleHistory.push({
+                    t: 0, x: mainP.x, y: mainP.y, z: mainP.z,
+                    vx: mainP.vx, vy: mainP.vy, vz: mainP.vz,
+                    alt: mainP.y + physParams.altitude,
+                    dist: 0, hmax: mainP.maxAlt, rmax: mainP.maxDist
+                });
+                document.getElementById('pi-id').innerText = mainP.id;
+            }
+
+            Visuals.trajGeo.setDrawRange(0, 0);
+            if(Visuals.fragMesh) Visuals.fragMesh.count = 0;
+            if(Visuals.ashMesh) Visuals.ashMesh.count = 0;
+            
+            if(Visuals.rulerGroup) {
+                Visuals.disposeObject3D(Visuals.rulerGroup);
+                Visuals.scene.remove(Visuals.rulerGroup);
+                Visuals.rulerGroup = new THREE.Group();
+                Visuals.scene.add(Visuals.rulerGroup);
+            }
+
+            updateTelemetryUI(0, physParams.altitude, 0, 0, physParams.altitude, 0);
+            
+            document.getElementById('pi-status').innerText = "Ready";
+            document.getElementById('pi-status').className = "text-emerald-400 font-bold";
+            document.getElementById('pi-pos-x').innerText = "0.0 m";
+            document.getElementById('pi-pos-y').innerText = "0.0 m";
+            document.getElementById('pi-pos-z').innerText = "0.0 m";
+            document.getElementById('pi-alt').innerText = `${physParams.altitude.toFixed(1)} m`;
+            document.getElementById('pi-vel-x').innerText = "0.0 m/s";
+            document.getElementById('pi-vel-y').innerText = "0.0 m/s";
+            document.getElementById('pi-vel-z').innerText = "0.0 m/s";
+            document.getElementById('pi-speed').innerText = "0.0 m/s";
+            document.getElementById('pi-time').innerText = "0.00 s";
+            
+            document.getElementById('timeline-slider').value = 0;
+            document.getElementById('timeline-slider').max = 0;
+            document.getElementById('tl-max').innerText = "0.0s";
+            
+            if (chartAlt && chartDist && chartAlt.data) {
+                chartAlt.data.labels = []; chartAlt.data.datasets[0].data = []; 
+                chartDist.data.labels = []; chartDist.data.datasets[0].data = [];
+                updateChartsLazy(true); 
+            }
+
+            checkSanity(); 
+            Analysis.updateValidationUI();
+            Visuals.updateMeshes(); 
+            Visuals.render(0);
+        }
+
+        // ==========================================
+        // 7. INITIALIZATION & EVENTS 
+        // ==========================================
+        function initApp() {
+            AppState.ui.sidebarCollapsed = false;
+            const leftPanel = document.getElementById('left-panel');
+            const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
+            const iconToggleSidebar = document.getElementById('toggle-sidebar-icon');
+
+            window.toggleSidebar = function() {
+                AppState.ui.sidebarCollapsed = !AppState.ui.sidebarCollapsed;
+                if(AppState.ui.sidebarCollapsed) {
+                    leftPanel.classList.add('sidebar-collapsed');
+                    iconToggleSidebar.classList.remove('fa-chevron-left');
+                    iconToggleSidebar.classList.add('fa-chevron-right');
+                    btnToggleSidebar.setAttribute('aria-label', 'Buka panel kontrol');
+                    btnToggleSidebar.title = 'Buka panel kontrol';
+                } else {
+                    leftPanel.classList.remove('sidebar-collapsed');
+                    iconToggleSidebar.classList.remove('fa-chevron-right');
+                    iconToggleSidebar.classList.add('fa-chevron-left');
+                    btnToggleSidebar.setAttribute('aria-label', 'Ciutkan panel kontrol');
+                    btnToggleSidebar.title = 'Ciutkan panel kontrol';
+                }
+            };
+
+            btnToggleSidebar.addEventListener('click', toggleSidebar);
+
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && window.innerWidth < 768 && !AppState.ui.sidebarCollapsed) {
+                    toggleSidebar();
+                }
+            });
+
+            window.setCameraMode = function(mode) {
+                AppState.cameraMode = mode;
+
+                document.querySelectorAll('.cam-btn').forEach(btn =>
+                    btn.classList.remove('bg-sky-900/30', 'border', 'border-sky-800', 'text-sky-400', 'font-bold')
+                );
+
+                const activeBtn = document.querySelector(`.cam-btn[data-mode="${mode}"]`);
+                if (activeBtn) {
+                    activeBtn.classList.add('bg-sky-900/30', 'border', 'border-sky-800', 'text-sky-400', 'font-bold');
+                }
+
+                const controls = Visuals.controls;
+                controls.enabled = true;
+                controls.enableRotate = true;
+                controls.enableZoom = true;
+                controls.enablePan = true;
+                Visuals.renderer.domElement.style.pointerEvents = 'auto';
+                Visuals.renderer.domElement.style.touchAction = 'none';
+
+                if (mode === 'overview') {
+                    Visuals.camera.position.set(0, 80, 200);
+                    controls.target.set(0, 0, 0);
+                } else if (mode === 'side') {
+                    Visuals.camera.position.set(200, 20, 0);
+                    controls.target.set(0, 0, 0);
+                } else if (mode === 'top') {
+                    Visuals.camera.position.set(0, 300, 0);
+                    controls.target.set(0, 0, 0);
+                } else if (mode === 'follow') {
+                    const mainP = AppState.particles.find(p => p.isMain);
+                    if (mainP && mainP.active && Visuals.mainMesh) {
+                        controls.target.copy(Visuals.mainMesh.position);
+                    } else {
+                        controls.target.set(0, Visuals.CRATER_HEIGHT, 0);
+                    }
+                }
+
+                controls.update();
+            };
+
+            function updateModelUI() {
+                const m = AppState.modelType;
+                const infoEl = document.getElementById('model-desc-info');
+                
+                let activeFields = [];
+                if (m === 1) {
+                    infoEl.innerHTML = "<strong>Model 1 (Ideal):</strong> Massa, diameter, Cd, ρ, μ, dan angin <strong>tidak digunakan</strong> oleh perhitungan proyektil ideal.";
+                    activeFields = ['in_v0', 'in_ang', 'in_alt', 'in_grav', 'in_count'];
+                } else if (m === 2) {
+                    infoEl.innerHTML = "<strong>Model 2 (Stokes):</strong> Pendekatan edukatif (rezim Reynolds rendah), bukan prediksi operasional. Menggunakan massa, diameter, gravitasi, angin, dan viskositas dinamis (μ).";
+                    activeFields = ['in_v0', 'in_ang', 'in_alt', 'in_mass', 'in_diam', 'in_grav', 'in_wind', 'in_windDir', 'in_mu', 'in_count'];
+                } else if (m === 3) {
+                    infoEl.innerHTML = "<strong>Model 3 (Quadratic Drag):</strong> Pendekatan edukatif. Menggunakan aerodynamic drag kuadratik berbasis kecepatan udara relatif (v_rel). Menggunakan massa, diam, Cd, ρ, gravitasi, angin, dan ketinggian awal.";
+                    activeFields = ['in_v0', 'in_ang', 'in_alt', 'in_mass', 'in_diam', 'in_cd', 'in_rho', 'in_grav', 'in_wind', 'in_windDir', 'in_count'];
+                }
+
+                document.querySelectorAll('.p-group-item').forEach(el => {
+                    if (activeFields.includes(el.dataset.id)) el.style.display = 'block';
+                    else el.style.display = 'none';
+                });
+            }
+
+            const pGroup = [
+                { id: 'in_v0', label: 'Initial Velocity (v0)', unit: 'm/s', min: 0, max: 800, step: 1, val: 'v0' },
+                { id: 'in_ang', label: 'Launch Angle (θ)', unit: '°', min: 1, max: 89, step: 1, val: 'angle' },
+                { id: 'in_alt', label: 'Initial Altitude', unit: 'm', min: 0, max: 5000, step: 1, val: 'altitude' },
+                { id: 'in_mass', label: 'Particle Mass', unit: 'mg', min: 0.1, max: 100, step: 0.1, val: 'mass' },
+                { id: 'in_diam', label: 'Particle Diameter', unit: 'mm', min: 0.1, max: 20, step: 0.1, val: 'diameter' },
+                { id: 'in_grav', label: 'Gravity', unit: 'm/s²', min: 0.1, max: 30, step: 0.01, val: 'gravity' },
+                { id: 'in_cd', label: 'Drag Coeff (Cd)', unit: '', min: 0, max: 2, step: 0.01, val: 'cd' },
+                { id: 'in_rho', label: 'Air Density (ρ)', unit: 'kg/m³', min: 0.1, max: 2, step: 0.01, val: 'rho' },
+                { id: 'in_mu', label: 'Viscosity (μ)', unit: 'Pa·s', min: 0.000001, max: 0.0001, step: 0.000001, val: 'mu' },
+                { id: 'in_wind', label: 'Wind Speed', unit: 'm/s', min: 0, max: 100, step: 1, val: 'windSpeed' },
+                { id: 'in_windDir', label: 'Wind Direction', unit: '°', min: 0, max: 360, step: 1, val: 'windDir' },
+                { id: 'in_count', label: 'Cloud Count', unit: 'pcs', min: 1, max: 500, step: 1, val: 'count' }
+            ];
+
+            const container = document.getElementById('ui-params-container');
+            container.innerHTML = '';
+            pGroup.forEach(g => {
+                const div = document.createElement('div');
+                div.className = "space-y-1 p-group-item";
+                div.dataset.id = g.id;
+                
+                const valStr = g.val === 'mu' ? Number(AppState.params[g.val]).toFixed(6) : AppState.params[g.val];
+
+                div.innerHTML = `
+                    <div class="flex justify-between items-center text-[10px] text-slate-400 font-bold uppercase tracking-wide mb-0.5">
+                        <span>${g.label}</span>
+                        <div class="flex items-center gap-1">
+                            <input type="number" id="num_${g.id}" min="${g.min}" max="${g.max}" step="${g.step}" value="${valStr}" class="w-16 bg-slate-800 text-white text-right px-1 py-0.5 rounded border border-slate-600 focus:border-orange-500 focus:outline-none font-mono text-[10px] transition-colors">
+                            <span class="text-white w-8 inline-block text-left truncate" title="${g.unit}">${g.unit}</span>
+                        </div>
+                    </div>
+                    <input type="range" id="${g.id}" min="${g.min}" max="${g.max}" step="${g.step}" value="${AppState.params[g.val]}" class="w-full">
+                `;
+                container.appendChild(div);
+
+                const rangeEl = document.getElementById(g.id);
+                const numEl = document.getElementById(`num_${g.id}`);
+
+                const updateVal = (v) => {
+                    if(isNaN(v)) return;
+                    v = Math.max(g.min, Math.min(g.max, v));
+                    AppState.params[g.val] = v;
+                    rangeEl.value = v;
+                    numEl.value = g.val === 'mu' ? v.toFixed(6) : v;
+                    
+                    if (g.val === 'count') {
+                        document.getElementById('lbl-cloud-count').innerText = `Particle Cloud (${v})`;
+                    }
+                    resetSimulationState(); 
+                };
+
+                rangeEl.addEventListener('input', (e) => updateVal(parseFloat(e.target.value)));
+                numEl.addEventListener('change', (e) => updateVal(parseFloat(e.target.value)));
+            });
+
+            const selDs = document.getElementById('sel-dataset');
+            for(let key in EventDatasets) {
+                const opt = document.createElement('option');
+                opt.value = key; opt.innerText = EventDatasets[key].name;
+                selDs.appendChild(opt);
+            }
+            selDs.addEventListener('change', (e) => {
+                if (e.target.value === 'custom') return; 
+                
+                AppState.currentDataset = EventDatasets[e.target.value];
+                const safeParams = { ...AppState.currentDataset.params };
+                if (safeParams.mu === undefined) safeParams.mu = 0.000018;
+                AppState.params = safeParams;
+
+                const statusEl = document.getElementById('info-ds-status');
+                statusEl.innerText = AppState.currentDataset.status;
+                
+                if(AppState.currentDataset.id.includes('benchmark')) statusEl.className = "badge-analitik text-[10px] px-2 py-0.5 rounded inline-block mt-1";
+                else if(AppState.currentDataset.id.includes('demo') || AppState.currentDataset.id.includes('krakatau2026')) statusEl.className = "badge-sim text-[10px] px-2 py-0.5 rounded inline-block mt-1";
+                else statusEl.className = "badge-obs text-[10px] px-2 py-0.5 rounded inline-block mt-1";
+                
+                if (AppState.currentDataset.id === 'benchmark1') {
+                    const selModel = document.getElementById('sel-model');
+                    if (selModel.value !== '1') {
+                        selModel.value = '1';
+                        AppState.modelType = 1;
+                        updateModelUI();
+                    }
+                    const singleModeRadio = document.querySelector('input[name="p_mode"][value="single"]');
+                    if (singleModeRadio && !singleModeRadio.checked) {
+                        singleModeRadio.checked = true;
+                        AppState.particleMode = 'single';
+                    }
+                }
+
+                pGroup.forEach(g => {
+                    const rangeEl = document.getElementById(g.id);
+                    const numEl = document.getElementById(`num_${g.id}`);
+                    if(rangeEl && numEl) {
+                        rangeEl.value = AppState.params[g.val];
+                        numEl.value = g.val === 'mu' ? Number(AppState.params[g.val]).toFixed(6) : AppState.params[g.val];
+                    }
+                });
+                
+                if (AppState.params.count !== undefined) {
+                     document.getElementById('lbl-cloud-count').innerText = `Particle Cloud (${AppState.params.count})`;
+                }
+
+                resetSimulationState();
+                Analysis.updateValidationUI();
+            });
+
+            document.getElementById('vis-mountain').addEventListener('change', (e) => { AppState.visuals.mountain = e.target.value; Visuals.rebuildVolcano(); resetSimulationState(); });
+            document.getElementById('vis-particle').addEventListener('change', (e) => { AppState.visuals.particles = e.target.value; Visuals.rebuildParticleInstances(); });
+            document.getElementById('vis-env').addEventListener('change', (e) => { AppState.visuals.env = e.target.value; Visuals.rebuildEnvironment(); });
+            document.getElementById('toggle-plume').addEventListener('change', (e) => { AppState.visuals.plume = e.target.checked; });
+            document.getElementById('toggle-sea').addEventListener('change', (e) => { if(Visuals.seaMesh) Visuals.seaMesh.visible = e.target.checked; AppState.visuals.sea = e.target.checked; });
+            document.getElementById('toggle-fog').addEventListener('change', (e) => { Visuals.scene.fog = e.target.checked ? new THREE.FogExp2(AppState.visuals.env === 'island' ? 0x1a2e4c : 0x050508, AppState.visuals.env === 'island' ? 0.0012 : 0.002) : null; AppState.visuals.fog = e.target.checked; });
+            document.getElementById('toggle-grid').addEventListener('change', (e) => { Visuals.gridHelper.visible = e.target.checked; AppState.visuals.grid = e.target.checked; });
+            document.getElementById('toggle-ruler').addEventListener('change', (e) => { AppState.visuals.ruler = e.target.checked; Visuals.rebuildRuler(); });
+            document.getElementById('toggle-ruler-label').addEventListener('change', (e) => { AppState.visuals.rulerLabel = e.target.checked; Visuals.rebuildRuler(); });
+            document.getElementById('toggle-terrain').addEventListener('change', (e) => { AppState.visuals.terrainCollision = e.target.checked; resetSimulationState(); Analysis.updateValidationUI(); });
+            document.getElementById('vis-smoke-int').addEventListener('input', (e) => { AppState.visuals.smokeInt = parseFloat(e.target.value); });
+
+            document.getElementById('sel-model').addEventListener('change', (e) => {
+                AppState.modelType = parseInt(e.target.value);
+                document.getElementById('tele-model-id').innerText = e.target.value;
+                updateModelUI();
+                resetSimulationState();
+            });
+
+            document.querySelectorAll('input[name="p_mode"]').forEach(r => {
+                r.addEventListener('change', (e) => {
+                    AppState.particleMode = e.target.value;
+                    resetSimulationState();
+                });
+            });
+
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+                    btn.classList.add('active');
+                    document.getElementById(btn.dataset.tab).classList.remove('hidden');
+                    document.getElementById(btn.dataset.tab).classList.add('block');
+                    if (btn.dataset.tab === 'tab-analisis') {
+                        if (chartAlt) { chartAlt.resize(); chartAlt.update(); }
+                        if (chartDist) { chartDist.resize(); chartDist.update(); }
+                    }
+                });
+            });
+
+            document.getElementById('btn-play').addEventListener('click', () => { 
+                if (AppState.isReplaying) {
+                    AppState.isReplaying = false;
+                    Visuals.updateMeshes(); 
+                }
+                const isFinished = AppState.particles.length > 0 && AppState.particles.every(p => !p.active);
+                if (isFinished) { resetSimulationState(); }
+                AppState.isRunning = true; 
+            });
+            
+            document.getElementById('btn-pause').addEventListener('click', () => { AppState.isRunning = false; checkSanity(); });
+            document.getElementById('btn-restart').addEventListener('click', resetSimulationState);
+            document.getElementById('btn-reset-sim').addEventListener('click', resetSimulationState);
+            document.getElementById('btn-reset-all').addEventListener('click', () => {
+                selDs.value = "demo"; selDs.dispatchEvent(new Event('change'));
+            });
+
+            document.querySelectorAll('.cam-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    setCameraMode(e.currentTarget.dataset.mode);
+                });
+            });
+            
+            const tlSlider = document.getElementById('timeline-slider');
+            tlSlider.addEventListener('input', (e) => {
+                AppState.isRunning = false;
+                AppState.isReplaying = true;
+                const targetTime = parseFloat(e.target.value);
+                document.getElementById('tl-current').innerText = targetTime.toFixed(1) + "s";
+                Visuals.renderHistoryFrame(targetTime);
+            });
+
+            document.querySelectorAll('.spd-btn').forEach(b => {
+                b.addEventListener('click', (e) => {
+                    document.querySelectorAll('.spd-btn').forEach(btn => {
+                        btn.classList.remove('text-orange-400', 'font-bold', 'bg-slate-700', 'shadow-inner');
+                        btn.classList.add('text-slate-400');
+                    });
+                    e.target.classList.add('text-orange-400', 'font-bold', 'bg-slate-700', 'shadow-inner');
+                    AppState.ui.playbackSpeed = parseFloat(e.target.dataset.spd);
+                });
+            });
+
+            document.getElementById('btn-autotune').addEventListener('click', () => Analysis.runAutoTune());
+            document.getElementById('btn-sens').addEventListener('click', () => Analysis.runSensitivity());
+            document.getElementById('btn-compare-models').addEventListener('click', () => Analysis.compareModels());
+
+            const presSteps = [
+                { title: "Kondisi Awal Peluncuran", desc: "Model mengasumsikan partikel abu dilontarkan dari kawah dengan kecepatan awal (v0) dan sudut tertentu. Vektor angin atmosfer memengaruhi sebaran." },
+                { title: "Gerak Proyektil & Gaya", desc: "Gaya gravitasi menarik partikel ke bawah. Hambatan udara bergantung pada kecepatan relatif partikel terhadap udara dan memengaruhi kecepatan serta lintasan." },
+                { title: "Analisis Telemetri Fisik", desc: "Perhatikan parameter Range dan Altitude. Model adveksi Stokes (M2) dan hambatan kuadratik (M3) menunjukkan perbedaan perilaku gerak fisika yang nyata." },
+                { title: "Simulasi vs Rekonstruksi", desc: "Penting: Ketinggian plume yang diobservasi atmosferik berbeda konsep dengan ketinggian maksimal balistik dari bongkahan partikel (Hmax)." },
+                { title: "Kesimpulan Simulasi", desc: "Simulasi digunakan untuk memahami pengaruh parameter fisika dan angin terhadap lintasan partikel. Hasil merupakan output model numerik, bukan prediksi zona bahaya." }
+            ];
+            
+            document.getElementById('btn-pres-mode').addEventListener('click', () => {
+                AppState.presentation.active = true;
+                AppState.presentation.step = 0;
+                document.body.classList.add('presentation-active');
+                const dotsHTML = presSteps.map((_, i) => `<div class="w-2 h-2 rounded-full ${i===0 ? 'bg-indigo-500' : 'bg-slate-600'}"></div>`).join('');
+                document.getElementById('pres-dots').innerHTML = dotsHTML;
+                updatePresUI();
+            });
+            document.getElementById('btn-exit-pres').addEventListener('click', () => {
+                AppState.presentation.active = false;
+                document.body.classList.remove('presentation-active');
+            });
+            document.getElementById('btn-pres-next').addEventListener('click', () => {
+                if(AppState.presentation.step < presSteps.length - 1) { AppState.presentation.step++; updatePresUI(); }
+            });
+            document.getElementById('btn-pres-prev').addEventListener('click', () => {
+                if(AppState.presentation.step > 0) { AppState.presentation.step--; updatePresUI(); }
+            });
+
+            function updatePresUI() {
+                const s = AppState.presentation.step;
+                document.getElementById('pres-step-badge').innerText = `STEP ${s+1}/${presSteps.length}`;
+                document.getElementById('pres-title').innerText = presSteps[s].title;
+                document.getElementById('pres-desc').innerText = presSteps[s].desc;
+                
+                document.getElementById('btn-pres-prev').style.visibility = s === 0 ? 'hidden' : 'visible';
+                document.getElementById('btn-pres-next').style.visibility = s === presSteps.length - 1 ? 'hidden' : 'visible';
+                
+                if (s === 0) { setCameraMode('side'); resetSimulationState(); }
+                if (s === 1) { document.getElementById('btn-play').click(); }
+                if (s === 2) { setCameraMode('follow'); }
+                if (s === 4) { setCameraMode('overview'); }
+
+                const dots = document.getElementById('pres-dots').children;
+                for(let i=0; i<dots.length; i++) {
+                    dots[i].className = i === s ? "w-2 h-2 rounded-full bg-indigo-500" : "w-2 h-2 rounded-full bg-slate-600";
+                }
+            }
+
+            document.getElementById('btn-save-exp').addEventListener('click', () => {
+                const name = document.getElementById('exp-name').value || `Eksperimen ${AppState.savedExperiments.length + 1}`;
+                const mainP = AppState.particles.find(p => p.isMain);
+                if(!mainP || !mainP.landed) { 
+                    showToast("⚠️ Selesaikan simulasi terlebih dahulu untuk menyimpan data.", true);
+                    return; 
+                }
+                
+                const exp = {
+                    id: crypto.randomUUID(), name, date: new Date().toLocaleTimeString(),
+                    hmax: mainP.maxAlt, dist: mainP.maxDist, time: mainP.flightTime,
+                    params: {...AppState.params}, model: AppState.modelType
+                };
+                AppState.savedExperiments.push(exp);
+                updateExpUI();
+                document.getElementById('exp-name').value = '';
+                showToast("Eksperimen Disimpan ✓");
+            });
+
+            function updateExpUI() {
+                const list = document.getElementById('saved-exp-list');
+                list.innerHTML = '';
+                AppState.savedExperiments.forEach((exp, idx) => {
+                    list.innerHTML += `
+                        <div class="bg-slate-800/50 p-2 rounded border border-slate-700 flex flex-col gap-1">
+                            <div class="flex justify-between items-center border-b border-slate-700 pb-1">
+                                <div class="flex items-center gap-2">
+                                    <input type="checkbox" class="exp-checkbox accent-sky-500" data-idx="${idx}">
+                                    <div class="text-xs text-emerald-400 font-bold">${exp.name}</div>
+                                </div>
+                                <div class="flex gap-1">
+                                    <button onclick="loadExp(${idx})" class="text-[9px] bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded">LOAD</button>
+                                    <button onclick="delExp(${idx})" class="text-[9px] bg-red-900/50 hover:bg-red-700 px-2 py-1 rounded text-red-200">DEL</button>
+                                </div>
+                            </div>
+                            <div class="text-[9px] text-slate-400 flex justify-between">
+                                <span>M${exp.model} | v0:${exp.params.v0} | θ:${exp.params.angle}°</span>
+                                <span>R:${exp.dist.toFixed(0)}m</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                document.querySelectorAll('.exp-checkbox').forEach(cb => {
+                    cb.addEventListener('change', (e) => {
+                        const idx = parseInt(e.target.dataset.idx);
+                        if(e.target.checked) AppState.selectedExperimentIndices.add(idx);
+                        else AppState.selectedExperimentIndices.delete(idx);
+                        document.getElementById('btn-compare-exp').innerText = `Compare (${AppState.selectedExperimentIndices.size} Selected)`;
+                    });
+                });
+            }
+
+            window.loadExp = function(idx) {
+                const exp = AppState.savedExperiments[idx];
+                const expParams = {...exp.params};
+                if (expParams.mu === undefined) expParams.mu = 0.000018;
+                AppState.params = expParams;
+                
+                AppState.modelType = exp.model;
+                document.getElementById('sel-model').value = exp.model;
+                
+                let customOpt = document.getElementById('opt-custom');
+                if(!customOpt) {
+                    customOpt = document.createElement('option');
+                    customOpt.value = 'custom';
+                    customOpt.id = 'opt-custom';
+                    document.getElementById('sel-dataset').appendChild(customOpt);
+                }
+                customOpt.innerText = `Custom: ${exp.name}`;
+                document.getElementById('sel-dataset').value = 'custom';
+                
+                AppState.currentDataset = {
+                    id: 'custom', name: `Custom: ${exp.name}`, status: "Eksperimen Tersimpan",
+                    source: "Eksperimen tersimpan pengguna",
+                    notes: "Parameter dimuat dari eksperimen tersimpan; bukan data observasi.",
+                    params: {...exp.params}, referenceAnalytic: null, otherObserved: null
+                };
+                
+                document.getElementById('info-ds-status').className = "badge-sim text-[10px] px-2 py-0.5 rounded inline-block mt-1";
+                document.getElementById('info-ds-status').innerText = AppState.currentDataset.status;
+                
+                pGroup.forEach(g => {
+                    const rangeEl = document.getElementById(g.id);
+                    const numEl = document.getElementById(`num_${g.id}`);
+                    if(rangeEl && numEl) {
+                        rangeEl.value = AppState.params[g.val];
+                        numEl.value = g.val === 'mu' ? Number(AppState.params[g.val]).toFixed(6) : AppState.params[g.val];
+                    }
+                });
+
+                if (AppState.params.count !== undefined) {
+                     document.getElementById('lbl-cloud-count').innerText = `Particle Cloud (${AppState.params.count})`;
+                }
+
+                updateModelUI();
+                resetSimulationState();
+                Analysis.updateValidationUI(); 
+            };
+
+            window.delExp = function(idx) {
+                AppState.savedExperiments.splice(idx, 1);
+                AppState.selectedExperimentIndices.clear();
+                document.getElementById('btn-compare-exp').innerText = `Compare (0 Selected)`;
+                updateExpUI();
+            };
+
+            document.getElementById('btn-compare-exp').addEventListener('click', () => {
+                if(AppState.selectedExperimentIndices.size < 2 || AppState.selectedExperimentIndices.size > 4) {
+                    showToast("⚠️ Pilih 2 hingga 4 eksperimen untuk dibandingkan.", true);
+                    return;
+                }
+                const modal = document.getElementById('modal-compare');
+                const thead = document.getElementById('cmp-thead');
+                const tbody = document.getElementById('cmp-tbody');
+                
+                let thHtml = `<tr><th class="p-2">Parameter</th>`;
+                let trRows = { model:[], v0:[], ang:[], mass:[], wind:[], hmax:[], dist:[], time:[] };
+                let isDiffModel = false; let baselineM = -1;
+                
+                AppState.selectedExperimentIndices.forEach(idx => {
+                    const e = AppState.savedExperiments[idx];
+                    thHtml += `<th class="p-2 text-sky-400">${e.name}</th>`;
+                    trRows.model.push(`M${e.model}`);
+                    trRows.v0.push(e.params.v0); trRows.ang.push(e.params.angle);
+                    trRows.mass.push(e.params.mass); trRows.wind.push(e.params.windSpeed);
+                    trRows.hmax.push(e.hmax.toFixed(1)); trRows.dist.push(e.dist.toFixed(1)); trRows.time.push(e.time.toFixed(1));
+                    if(baselineM===-1) baselineM = e.model; else if(baselineM !== e.model) isDiffModel = true;
+                });
+                thHtml += `</tr>`;
+                
+                const buildRow = (label, arr, isHighlight=false) => {
+                    let r = `<tr><td class="p-2 font-sans text-slate-400">${label}</td>`;
+                    arr.forEach(val => r += `<td class="p-2 ${isHighlight?'text-white font-bold':''}">${val}</td>`);
+                    return r + `</tr>`;
+                };
+
+                let tbHtml = buildRow("Model Fisika", trRows.model) + buildRow("Kecepatan v0 (m/s)", trRows.v0) + buildRow("Sudut θ (°)", trRows.ang) + buildRow("Massa (mg)", trRows.mass) + buildRow("Angin (m/s)", trRows.wind) +
+                             buildRow("Hmax Ketinggian (m)", trRows.hmax, true) + buildRow("Jangkauan Max (m)", trRows.dist, true) + buildRow("Waktu Terbang (s)", trRows.time, true);
+
+                thead.innerHTML = thHtml; tbody.innerHTML = tbHtml;
+                document.getElementById('cmp-warning').innerText = isDiffModel ? "MODEL BERBEDA - BACA SEBAGAI PERBANDINGAN SKENARIO" : "";
+                modal.classList.add('active');
+            });
+
+            document.getElementById('btn-close-compare').addEventListener('click', () => {
+                document.getElementById('modal-compare').classList.remove('active');
+            });
+
+            // Global Safe Initialization
+            Visuals.init();
+            initCharts();
+            setCameraMode(AppState.cameraMode);
+            selDs.dispatchEvent(new Event('change'));
+            requestAnimationFrame(animate);
+        }
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
